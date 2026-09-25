@@ -1,0 +1,9 @@
+# Sonar's own plugin marketplace. Sonar lists these when you type "plugins".
+# See docs/plugins.md to publish a plugin or run a marketplace of your own.
+name = "Sonar"
+
+[[plugins]]
+id = "web-search"
+name = "Web search"
+description = "Search Google, DuckDuckGo or GitHub"
+path = "plugins/web-search"

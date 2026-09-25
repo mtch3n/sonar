@@ -4,15 +4,21 @@ use anyhow::Result;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::UpdaterExt;
 
-use crate::tray::Tray;
+use crate::{launcher::Launcher, tray::Tray};
 
 const CHECK_EVERY: Duration = Duration::from_secs(12 * 60 * 60);
 
+/// Checks for a new version now and every 12 hours, unless the settings turn it off.
 pub fn watch(app: &AppHandle) {
     let app = app.clone();
     thread::spawn(move || {
         loop {
-            check(&app, false);
+            let wanted = app
+                .try_state::<Launcher>()
+                .is_some_and(|launcher| launcher.current_settings().updates.check);
+            if wanted {
+                check(&app, false);
+            }
             thread::sleep(CHECK_EVERY);
         }
     });

@@ -1,4 +1,6 @@
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewWindow};
+
+use crate::launcher::Launcher;
 
 const MAIN: &str = "main";
 
@@ -7,7 +9,7 @@ pub fn toggle(app: &AppHandle) {
         return;
     };
     if window.is_visible().unwrap_or(false) {
-        let _ = window.hide();
+        hide(app);
     } else {
         present(&window);
     }
@@ -19,17 +21,41 @@ pub fn show(app: &AppHandle) {
     }
 }
 
+/// Opens the search bar with `text` already typed.
+pub fn show_with(app: &AppHandle, text: &str) {
+    show(app);
+    let _ = app.emit_to(MAIN, "sonar://fill", text);
+}
+
 pub fn hide(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN) {
         let _ = window.hide();
     }
+    if let Some(launcher) = app.try_state::<Launcher>() {
+        launcher.stop_plugins();
+    }
 }
 
 fn present(window: &WebviewWindow) {
+    let app = window.app_handle();
+    crate::reload(app);
+    if let Some(launcher) = app.try_state::<Launcher>() {
+        let _ = fit_width(window, launcher.current_settings().appearance.width);
+    }
     let _ = place(window);
     let _ = window.show();
     let _ = window.set_focus();
     let _ = window.emit("sonar://shown", ());
+}
+
+/// The search window sets its own height; the width comes from the settings and has to
+/// be right before the window is centered.
+fn fit_width(window: &WebviewWindow, width: u32) -> tauri::Result<()> {
+    let height = window
+        .inner_size()?
+        .to_logical::<f64>(window.scale_factor()?)
+        .height;
+    window.set_size(LogicalSize::new(f64::from(width), height))
 }
 
 fn place(window: &WebviewWindow) -> tauri::Result<()> {

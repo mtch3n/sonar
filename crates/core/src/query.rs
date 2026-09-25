@@ -18,7 +18,8 @@ pub struct Query {
     pub modified_before: Option<i64>,
     pub size_above: Option<u64>,
     pub size_below: Option<u64>,
-    pub limit: usize,
+    /// `None` when the query has no `limit:` filter; search then returns [`DEFAULT_LIMIT`] hits.
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -86,7 +87,7 @@ impl Query {
             modified_before: None,
             size_above: None,
             size_below: None,
-            limit: DEFAULT_LIMIT,
+            limit: None,
         };
         for token in tokens(input) {
             if let Some(word) = token.strip_prefix('-').filter(|w| !w.is_empty()) {
@@ -142,9 +143,10 @@ impl Query {
                 (_, amount) => self.size_above = Some(size(amount)?),
             },
             Key::Limit => {
-                self.limit = value.parse().ok().filter(|n| *n > 0).ok_or_else(|| {
+                let limit = value.parse().ok().filter(|n| *n > 0).ok_or_else(|| {
                     ParseError(format!("`limit:` needs a positive number, not `{value}`"))
                 })?;
+                self.limit = Some(limit);
             }
         }
         Ok(())
@@ -305,7 +307,7 @@ mod tests {
         );
         assert_eq!(q.modified_after, Some(NOW - 30 * DAY));
         assert_eq!(q.size_above, Some(10 * 1024 * 1024));
-        assert_eq!(q.limit, 5);
+        assert_eq!(q.limit, Some(5));
     }
 
     #[test]
