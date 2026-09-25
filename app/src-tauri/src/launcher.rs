@@ -554,12 +554,13 @@ impl Launcher {
         let dir = dir.unwrap_or(&self.paths.home);
         match action {
             Action::Open(target) if target.contains("://") || target.starts_with("mailto:") => {
-                app.opener().open_url(&target, None::<&str>)
+                host::open(app, &target)?;
             }
-            Action::Open(path) => app
+            Action::Open(path) => host::open(app, &dir.join(path).to_string_lossy())?,
+            Action::Reveal(path) => app
                 .opener()
-                .open_path(dir.join(path).to_string_lossy(), None::<&str>),
-            Action::Reveal(path) => app.opener().reveal_item_in_dir(dir.join(path)),
+                .reveal_item_in_dir(dir.join(path))
+                .map_err(|err| err.to_string())?,
             Action::Copy(text) => {
                 app.clipboard()
                     .write_text(text)
@@ -572,7 +573,6 @@ impl Launcher {
             }
             Action::Fill(text) => return Ok(Outcome::Fill { text }),
         }
-        .map_err(|err| err.to_string())?;
         Ok(close(app))
     }
 }

@@ -44,6 +44,9 @@ fn present(window: &WebviewWindow) {
     }
     let _ = place(window);
     let _ = window.show();
+    // Window managers may pick their own spot for a window as it appears, so place it
+    // again once it's shown.
+    let _ = place(window);
     let _ = window.set_focus();
     let _ = window.emit("sonar://shown", ());
 }
@@ -58,8 +61,17 @@ fn fit_width(window: &WebviewWindow, width: u32) -> tauri::Result<()> {
     window.set_size(LogicalSize::new(f64::from(width), height))
 }
 
+/// Centers the bar near the top of the screen the pointer is on, like Spotlight.
 fn place(window: &WebviewWindow) -> tauri::Result<()> {
-    let Some(monitor) = window.current_monitor()?.or(window.primary_monitor()?) else {
+    let under_pointer = match window.cursor_position() {
+        Ok(point) => window.monitor_from_point(point.x, point.y)?,
+        Err(_) => None,
+    };
+    let monitor = match under_pointer {
+        Some(monitor) => Some(monitor),
+        None => window.primary_monitor()?,
+    };
+    let Some(monitor) = monitor else {
         return Ok(());
     };
     let (area, origin) = (monitor.size(), monitor.position());

@@ -205,14 +205,12 @@ impl Tray {
 
 /// Opens `settings.toml` in the default editor, writing it first if it's missing.
 fn open_settings(app: &AppHandle) {
-    use tauri_plugin_opener::OpenerExt;
-
     let Some(launcher) = app.try_state::<Launcher>() else {
         return;
     };
     let path = &launcher.paths().settings;
     let _ = crate::settings::Settings::load(path);
-    if let Err(err) = app.opener().open_path(path.to_string_lossy(), None::<&str>) {
+    if let Err(err) = crate::host::open(app, &path.to_string_lossy()) {
         eprintln!("sonar: couldn't open {}: {err}", path.display());
     }
 }
