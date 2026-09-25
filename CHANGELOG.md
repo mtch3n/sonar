@@ -11,4 +11,5 @@ First release.
 - 16 kinds, including keys and certificates, scripts, apps, documents and images
 - Chinese, Japanese and Korean file names match on part of the name
 - `sonar` command-line tool for indexing and searching from a terminal
+- Updates from GitHub Releases: the app checks on its own and installs from the tray menu, and `sonar update` updates the command-line tool
 - Builds for Linux, macOS and Windows

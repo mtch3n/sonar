@@ -4,6 +4,7 @@ mod commands;
 mod hotkey;
 mod indexer;
 mod tray;
+mod updater;
 mod window;
 
 use sonar_core::Paths;
@@ -24,6 +25,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -34,9 +36,11 @@ fn main() {
                 eprintln!("sonar: couldn't set up the hotkey: {err:#}");
             }
             let tray = tray::create(app.handle())?;
+            app.manage(tray.clone());
             app.manage(Indexer::start(paths, move |status| {
                 tray.show_status(&status)
             }));
+            updater::watch(app.handle());
 
             if !std::env::args().any(|a| a == BACKGROUND) {
                 window::show(app.handle());

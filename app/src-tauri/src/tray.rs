@@ -8,12 +8,16 @@ use tauri::{
 use crate::{
     hotkey,
     indexer::{Indexer, Status},
-    window,
+    updater, window,
 };
 
+pub const CHECK_FOR_UPDATES: &str = "Check for updates";
+
+#[derive(Clone)]
 pub struct Tray {
     icon: TrayIcon,
     status: MenuItem<Wry>,
+    update: MenuItem<Wry>,
     idle: Image<'static>,
     busy: Image<'static>,
 }
@@ -22,6 +26,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
     let idle = Image::from_bytes(include_bytes!("../icons/tray.png"))?;
     let busy = Image::from_bytes(include_bytes!("../icons/tray-busy.png"))?;
     let status = MenuItem::with_id(app, "status", "Starting…", false, None::<&str>)?;
+    let update = MenuItem::with_id(app, "update", CHECK_FOR_UPDATES, true, None::<&str>)?;
     let open_label = format!("Open Sonar    {}", hotkey::LABEL);
     let menu = Menu::with_items(
         app,
@@ -30,6 +35,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "open", open_label, true, None::<&str>)?,
             &MenuItem::with_id(app, "reindex", "Reindex now", true, None::<&str>)?,
+            &update,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "quit", "Quit Sonar", true, None::<&str>)?,
         ],
@@ -46,6 +52,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
                     indexer.reindex();
                 }
             }
+            "update" => updater::check(app, true),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -63,6 +70,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
     Ok(Tray {
         icon,
         status,
+        update,
         idle,
         busy,
     })
@@ -81,6 +89,11 @@ impl Tray {
         let _ = self.icon.set_tooltip(Some(&text));
         let image = if busy { &self.busy } else { &self.idle };
         let _ = self.icon.set_icon(Some(image.clone()));
+    }
+
+    pub fn show_update(&self, text: &str, enabled: bool) {
+        let _ = self.update.set_text(text);
+        let _ = self.update.set_enabled(enabled);
     }
 }
 

@@ -53,9 +53,15 @@ Your home folder, except hidden folders (`.ssh`, `.gnupg` and `.kube` are kept),
 - macOS: `~/Library/Application Support/sonar/ignore`
 - Windows: `%APPDATA%\sonar\ignore`
 
-Sonar records names, sizes and dates, and it doesn't send anything over the network. The only time it opens a file is to read the first four bytes, when it needs to tell a script from a program or a Keynote deck from a key file.
+Sonar records names, sizes and dates, and the index never leaves your computer. The only network request is the update check against GitHub. The only time it opens a file is to read the first four bytes, when it needs to tell a script from a program or a Keynote deck from a key file.
 
 The app rescans every five minutes. To rescan now, use Reindex now in the tray menu or run `sonar index`.
+
+## Updates
+
+The app checks GitHub for a new release when it starts and every 12 hours after that. When one is out, the tray menu shows Update to vX.Y.Z. Click it, or click Check for updates at any time, and Sonar downloads the release, checks its signature, installs it and restarts. This works for the AppImage, `.deb`, `.rpm`, macOS and Windows installs.
+
+The command-line tool updates itself with `sonar update`.
 
 ## Command line
 
@@ -64,6 +70,7 @@ sonar index
 sonar s invoice kind:pdf
 sonar s 'kind:image modified:<7d'
 sonar s --help
+sonar update
 ```
 
 ## Build from source
@@ -74,7 +81,12 @@ You need Rust (the version is pinned in `rust-toolchain.toml`), Node 24 or newer
 cd app
 pnpm install
 pnpm tauri dev
-pnpm tauri build
+```
+
+Release builds are signed so the updater can trust them. To build installers without the signing key, turn the update files off:
+
+```sh
+pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 ```
 
 The command-line tool builds on its own with `cargo build --release -p sonar-cli`.

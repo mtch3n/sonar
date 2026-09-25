@@ -59,6 +59,18 @@
           "libayatana-appindicator-gtk3"
         ]
       }
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJGN0NDMzA5MTA3QTZFNDEKUldSQmJub1FDY044djgzbjFLMVFEVVBFRHIzZnRVeHY3M3JqdjdPSGhPSnMvWVZsQk1YTVVneXAK",
+      "endpoints": [
+        "https://github.com/mtch3n/sonar/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
     }
   }
 }

@@ -86,6 +86,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           tauriScript: pnpm tauri
@@ -122,12 +124,10 @@ jobs:
             lipo -create -output out/sonar \
               target/aarch64-apple-darwin/release/sonar \
               target/x86_64-apple-darwin/release/sonar
-          elif [ "$RUNNER_OS" = Windows ]; then
-            cargo build --release --locked -p sonar-cli
-            cp target/release/sonar.exe out/
           else
             cargo build --release --locked -p sonar-cli
-            cp target/release/sonar out/
+            cp target/release/sonar* out/
+            rm -f out/*.d out/*.pdb
           fi
           cp LICENSE README.md out/
       - name: Upload
@@ -138,13 +138,15 @@ jobs:
           RELEASE_ID: ${{ needs.draft.outputs.id }}
         run: |
           name="sonar-cli-${GITHUB_REF_NAME#v}-$TARGET"
+          cd out
           if [ "$RUNNER_OS" = Windows ]; then
             asset="$name.zip"
-            (cd out && 7z a "../$asset" .)
+            7z a "../$asset" *
           else
             asset="$name.tar.gz"
-            tar -czf "$asset" -C out .
+            tar -czf "../$asset" *
           fi
+          cd ..
           gh api --method POST \
             -H "Content-Type: application/octet-stream" \
             "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$asset" \
@@ -153,6 +155,7 @@ jobs:
   publish:
     needs: [draft, app, cli]
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - name: Add checksums and publish
         env:

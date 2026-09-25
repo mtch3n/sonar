@@ -24,12 +24,14 @@ enum Command {
         #[arg(help = "Words and filters, e.g. `invoice kind:pdf modified:<30d`")]
         query: Vec<String>,
     },
+    #[command(about = "Update sonar to the latest release on GitHub")]
+    Update,
 }
 
 const SYNTAX: &str = "\
 Filters:
-  kind:pdf,image      project folder code script key pdf doc sheet slides
-                      image video audio archive config other
+  kind:pdf,image      project folder app code script key pdf doc sheet
+                      slides image video audio archive config other
   ext:sh              file extension
   in:~/Documents      under a path; in:trellis matches any folder named trellis
   name:readme         match the file name only
@@ -43,13 +45,49 @@ Filters:
 Files inside code projects only show up with kind:, ext: or in:.";
 
 fn main() -> Result<()> {
-    let cli = Cli::parse();
-    let paths = Paths::from_env()?;
-    let mut index = Index::open(&paths.db)?;
-    match cli.command {
-        Command::Index => run_index(&mut index, &paths),
-        Command::Search { query } => run_search(&index, &paths, &query.join(" ")),
+    match Cli::parse().command {
+        Command::Index => {
+            let (paths, mut index) = open()?;
+            run_index(&mut index, &paths)
+        }
+        Command::Search { query } => {
+            let (paths, index) = open()?;
+            run_search(&index, &paths, &query.join(" "))
+        }
+        Command::Update => run_update(),
     }
+}
+
+fn open() -> Result<(Paths, Index)> {
+    let paths = Paths::from_env()?;
+    let index = Index::open(&paths.db)?;
+    Ok((paths, index))
+}
+
+fn run_update() -> Result<()> {
+    let target = if cfg!(target_os = "macos") {
+        "universal-apple-darwin"
+    } else {
+        self_update::get_target()
+    };
+    let status = self_update::backends::github::Update::configure()
+        .repo_owner("mtch3n")
+        .repo_name("sonar")
+        .bin_name("sonar")
+        .asset_identifier("sonar-cli")
+        .target(target)
+        .checksum_from_asset("SHA256SUMS.txt")
+        .current_version(self_update::cargo_crate_version!())
+        .show_download_progress(true)
+        .no_confirm(true)
+        .build()?
+        .update()?;
+    if status.is_updated() {
+        println!("Updated sonar to {}", status.version());
+    } else {
+        println!("sonar {} is the latest version", status.version());
+    }
+    Ok(())
 }
 
 fn run_index(index: &mut Index, paths: &Paths) -> Result<()> {
