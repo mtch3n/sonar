@@ -10,7 +10,7 @@ mod window;
 use sonar_core::Paths;
 use tauri::{Manager, WindowEvent};
 
-use crate::{commands::Searcher, indexer::Indexer};
+use crate::{commands::Searcher, indexer::Indexer, tray::Tray};
 
 const TOGGLE: &str = "--toggle";
 const BACKGROUND: &str = "--background";
@@ -47,10 +47,16 @@ fn main() {
             }
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::Focused(false) = event {
+        .on_window_event(|window, event| match event {
+            WindowEvent::Focused(false) => {
                 let _ = window.hide();
             }
+            WindowEvent::ThemeChanged(_) => {
+                if let Some(tray) = window.try_state::<Tray>() {
+                    tray.refresh();
+                }
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             commands::search,

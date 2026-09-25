@@ -28,12 +28,16 @@ pub fn check(app: &AppHandle, install: bool) {
             tray.show_update("Checking for updates…", false);
         }
         match run(&app, &tray, install).await {
-            Ok(Some(version)) => tray.show_update(&format!("Update to v{version}"), true),
+            Ok(Some(version)) => {
+                tray.set_update_ready(true);
+                tray.show_update(&format!("Update to v{version}"), true);
+            }
             Ok(None) if install => {
+                tray.set_update_ready(false);
                 let current = &app.package_info().version;
                 tray.show_update(&format!("Up to date (v{current})"), true);
             }
-            Ok(None) => {}
+            Ok(None) => tray.set_update_ready(false),
             Err(err) => {
                 eprintln!("sonar: update failed: {err:#}");
                 if install {

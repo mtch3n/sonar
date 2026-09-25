@@ -1,3 +1,5 @@
+<img src="app/icons/app-icon.svg" width="96" alt="">
+
 # Sonar
 
 Sonar indexes your home folder and finds files as you type. It runs in the tray and opens its search bar when you press a shortcut.
