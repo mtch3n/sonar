@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub use kind::Kind;
-pub use query::{ParseError, Query, Term, Within};
+pub use query::{DEFAULT_LIMIT, ParseError, Query, Term, Within};
 pub use rules::Rules;
 pub use scan::ScanStats;
 pub use search::Hit;
@@ -22,17 +22,23 @@ pub struct Paths {
     pub home: PathBuf,
     pub db: PathBuf,
     pub rules: PathBuf,
+    pub settings: PathBuf,
+    pub plugins: PathBuf,
 }
 
 impl Paths {
     pub fn from_env() -> Result<Paths> {
         let home = dirs::home_dir().context("can't find the home folder")?;
         let data = dirs::data_local_dir().context("can't find the data folder")?;
-        let config = dirs::config_dir().context("can't find the config folder")?;
+        let config = dirs::config_dir()
+            .context("can't find the config folder")?
+            .join("sonar");
         Ok(Paths {
             home,
             db: data.join("sonar").join("index.db"),
-            rules: config.join("sonar").join("ignore"),
+            rules: config.join("ignore"),
+            settings: config.join("settings.toml"),
+            plugins: config.join("plugins"),
         })
     }
 }

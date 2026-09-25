@@ -1,0 +1,5 @@
+name = "Web search"
+description = "Search Google, DuckDuckGo or GitHub"
+keyword = "g"
+command = ["python3", "web_search.py"]
+icon = "icon.svg"

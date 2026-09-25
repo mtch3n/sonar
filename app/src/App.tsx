@@ -1,133 +1,213 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { Search } from "lucide-react";
-import { type KeyboardEvent, type MouseEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { age, size } from "./format";
-import { KindIcon } from "./kinds";
+import { Search, TriangleAlert } from "lucide-react";
+import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Results, rowId } from "./Results";
+import type { Outcome, Row, Section, View } from "./types";
 import "./styles.css";
-
-type Hit = {
-  path: string;
-  name: string;
-  folder: string;
-  kind: string;
-  size: number | null;
-  modified: number;
-};
-
-type Results = { hits: Hit[]; error: string | null };
-
-const WIDTH = 720;
-const BORDER = 2;
-const BAR = 62;
-const ROW = 52;
-const LIST_PADDING = 12;
-const FOOTER = 32;
-const MESSAGE = 44;
-const MAX_ROWS = 8;
 
 const isMac = navigator.userAgent.includes("Mac");
 const appWindow = getCurrentWindow();
 
+/** What the footer says while an action that goes to GitHub runs. */
+const PROGRESS: Record<string, string> = {
+  Install: "Installing…",
+  Update: "Updating…",
+  Remove: "Removing…",
+  Add: "Adding…",
+};
+
+type Notice = { text: string; warning: boolean };
+
 export default function App() {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<Results | null>(null);
+  const [sections, setSections] = useState<Section[]>([]);
   const [selected, setSelected] = useState(0);
+  const [view, setView] = useState<View | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [round, setRound] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-  const list = useRef<HTMLUListElement>(null);
+  const panel = useRef<HTMLElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const searched = useRef("");
+  const text = query.trim();
 
   useEffect(() => {
-    const text = query.trim();
     if (!text) {
-      setResults(null);
+      setSections([]);
+      searched.current = "";
       return;
     }
     let current = true;
-    invoke<Results>("search", { query: text })
-      .then((reply) => {
-        if (current) {
-          setResults(reply);
-          setSelected(0);
-        }
-      })
-      .catch((err) => {
-        if (current) setResults({ hits: [], error: String(err) });
-      });
+    let first = true;
+    const channel = new Channel<Section[]>();
+    channel.onmessage = (batch) => {
+      if (!current) return;
+      const fresh = first;
+      first = false;
+      setSections((shown) => arrange(fresh ? batch : merge(shown, batch)));
+      if (fresh && searched.current !== text) setSelected(0);
+      searched.current = text;
+    };
+    invoke("search", { query: text, onResults: channel }).catch((err) => {
+      if (current) setSections([failure(String(err))]);
+    });
     return () => {
       current = false;
     };
-  }, [query]);
+  }, [text, round]);
 
-  useEffect(() => {
-    const unlisten = listen("sonar://shown", () => {
-      input.current?.focus();
-      input.current?.select();
-    });
-    return () => {
-      unlisten.then((stop) => stop());
-    };
+  const loadView = useCallback(() => {
+    invoke<View>("view").then(setView, () => {});
   }, []);
 
-  const hits = results?.hits ?? [];
-  const message = results?.error ?? (results && hits.length === 0 ? "No matches" : null);
-  const rows = Math.min(hits.length, MAX_ROWS);
-  const height =
-    BORDER + BAR + (message ? MESSAGE : 0) + (rows ? rows * ROW + LIST_PADDING + FOOTER : 0);
+  const fill = useCallback((value: string) => {
+    setQuery(value);
+    setNotice(null);
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(value.length, value.length);
+    });
+  }, []);
+
+  useEffect(loadView, [loadView]);
 
   useEffect(() => {
-    appWindow.setSize(new LogicalSize(WIDTH, height));
-  }, [height]);
+    const stops = [
+      listen("sonar://shown", () => {
+        input.current?.focus();
+        input.current?.select();
+        loadView();
+        setRound((n) => n + 1);
+      }),
+      listen("sonar://view", loadView),
+      listen<string>("sonar://fill", ({ payload }) => fill(payload)),
+    ];
+    return () => {
+      for (const stop of stops) stop.then((unlisten) => unlisten());
+    };
+  }, [loadView, fill]);
+
+  useEffect(() => {
+    if (!view) return;
+    const root = document.documentElement;
+    root.style.setProperty("--accent", view.accent);
+    root.style.setProperty("--rows", String(view.rows));
+    const dark = matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => {
+      root.dataset.theme = view.theme === "system" ? (dark.matches ? "dark" : "light") : view.theme;
+    };
+    apply();
+    dark.addEventListener("change", apply);
+    return () => dark.removeEventListener("change", apply);
+  }, [view]);
+
+  // The window is as tall as the panel's content, so it never shows empty space.
+  const width = view?.width ?? 720;
+  useLayoutEffect(() => {
+    const element = panel.current;
+    if (!element) return;
+    const fit = () => {
+      const height = Math.ceil(element.getBoundingClientRect().height);
+      appWindow.setSize(new LogicalSize(width, height));
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [width]);
+
+  const visible = sections.filter((s) => s.rows.length > 0 || s.message || s.pending);
+  const rows = visible.flatMap((s) => s.rows);
+  const current = Math.min(selected, Math.max(0, rows.length - 1));
+  const chosen: Row | undefined = rows[current];
+  const settled = sections.length > 0 && sections.every((s) => !s.pending);
+  const nothing = text !== "" && settled && visible.length === 0;
+  const notices = view?.notices ?? [];
 
   useLayoutEffect(() => {
-    list.current?.children[selected]?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+    if (!chosen) return;
+    const row = document.getElementById(rowId(chosen));
+    const title = row?.previousElementSibling;
+    if (title?.classList.contains("section-title")) title.scrollIntoView({ block: "nearest" });
+    row?.scrollIntoView({ block: "nearest" });
+  }, [chosen]);
 
-  const open = (hit: Hit, reveal: boolean) =>
-    invoke(reveal ? "reveal" : "open", { path: hit.path }).catch((err) =>
-      setResults({ hits, error: String(err) }),
-    );
+  async function choose(row: Row, alt: boolean) {
+    const label = alt ? row.alt : row.action;
+    if (!label || busy) return;
+    setBusy(PROGRESS[label] ?? null);
+    try {
+      const outcome = await invoke<Outcome>("activate", { id: row.id, alt });
+      if (outcome.then === "fill") {
+        fill(outcome.text);
+      } else if (outcome.then === "refresh") {
+        setNotice({ text: outcome.notice, warning: false });
+        setRound((n) => n + 1);
+      }
+    } catch (err) {
+      setNotice({ text: String(err), warning: true });
+    } finally {
+      setBusy(null);
+    }
+  }
 
-  function onKeyDown(event: KeyboardEvent) {
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     const move = (by: number) => {
       event.preventDefault();
-      setSelected((current) => Math.max(0, Math.min(hits.length - 1, current + by)));
+      setSelected(Math.max(0, Math.min(rows.length - 1, current + by)));
     };
+    const page = view?.rows ?? 8;
     switch (event.key) {
       case "ArrowDown":
         return move(1);
       case "ArrowUp":
         return move(-1);
       case "PageDown":
-        return move(MAX_ROWS);
+        return move(page);
       case "PageUp":
-        return move(-MAX_ROWS);
-      case "Enter": {
-        const hit = hits[selected];
-        if (hit) {
+        return move(-page);
+      case "Enter":
+        if (chosen) {
           event.preventDefault();
-          open(hit, event.ctrlKey || event.metaKey);
+          choose(chosen, event.ctrlKey || event.metaKey);
         }
         return;
-      }
       case "Escape":
         event.preventDefault();
-        if (query) setQuery("");
-        else appWindow.hide();
+        if (query) {
+          setQuery("");
+          setNotice(null);
+        } else {
+          appWindow.hide();
+        }
         return;
     }
   }
 
+  const status = busy ?? (view?.indexing ? "Indexing…" : null);
+
   return (
-    <main className="panel">
-      <label className={hits.length || message ? "bar divided" : "bar"}>
-        <Search className="bar-icon" size={22} strokeWidth={2} />
+    <main ref={panel} className="panel">
+      <label className="bar">
+        <Search className="bar-icon" size={20} strokeWidth={1.75} aria-hidden />
         <input
           ref={input}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setNotice(null);
+          }}
           onKeyDown={onKeyDown}
-          placeholder="Search files"
+          placeholder="Search"
+          aria-label="Search"
+          role="combobox"
+          aria-expanded={rows.length > 0}
+          aria-controls="results"
+          aria-autocomplete="list"
+          aria-activedescendant={chosen ? rowId(chosen) : undefined}
           autoFocus
           spellCheck={false}
           autoComplete="off"
@@ -135,44 +215,68 @@ export default function App() {
         />
       </label>
 
-      {message && <p className={results?.error ? "message error" : "message"}>{message}</p>}
+      {(notices.length > 0 || notice || nothing) && (
+        <div className="notes" role="status">
+          {notices.slice(0, 3).map((line) => (
+            <p key={line} className="warning">
+              <TriangleAlert size={14} strokeWidth={2} aria-hidden />
+              {line}
+            </p>
+          ))}
+          {notice && <p className={notice.warning ? "warning" : undefined}>{notice.text}</p>}
+          {nothing && (
+            <p>
+              {view?.indexing
+                ? `No matches for “${text}” yet. Sonar is still indexing your home folder.`
+                : `No matches for “${text}”`}
+            </p>
+          )}
+        </div>
+      )}
 
-      {rows > 0 && (
-        <>
-          <ul ref={list} className="results" role="listbox">
-            {hits.map((hit, i) => (
-              <li
-                key={hit.path}
-                role="option"
-                aria-selected={i === selected}
-                className="hit"
-                onMouseMove={() => setSelected(i)}
-                onClick={(event: MouseEvent) => open(hit, event.ctrlKey || event.metaKey)}
-              >
-                <KindIcon kind={hit.kind} />
-                <span className="hit-text">
-                  <span className="hit-name">{hit.name}</span>
-                  <span className="hit-folder">{hit.folder}</span>
-                </span>
-                <span className="hit-meta">
-                  {age(hit.modified)}
-                  {hit.size !== null && ` · ${size(hit.size)}`}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <footer className="footer">
-            <span>
-              {hits.length} {hits.length === 1 ? "result" : "results"}
-            </span>
+      {visible.length > 0 && (
+        <Results
+          sections={visible}
+          selected={current}
+          listRef={list}
+          onHover={setSelected}
+          onChoose={choose}
+        />
+      )}
+
+      {rows.length > 0 && (
+        <footer className="footer">
+          <span className="status">{status}</span>
+          {chosen && (
             <span className="keys">
-              <kbd>↵</kbd> Open
-              <kbd>{isMac ? "⌘ ↵" : "Ctrl ↵"}</kbd> Show in folder
-              <kbd>Esc</kbd> Close
+              <span>
+                {chosen.action}
+                <kbd>↵</kbd>
+              </span>
+              {chosen.alt && (
+                <span>
+                  {chosen.alt}
+                  <kbd>{isMac ? "⌘ ↵" : "Ctrl ↵"}</kbd>
+                </span>
+              )}
             </span>
-          </footer>
-        </>
+          )}
+        </footer>
       )}
     </main>
   );
+}
+
+function arrange(sections: Section[]): Section[] {
+  return [...sections].sort((a, b) => a.rank - b.rank);
+}
+
+/** Late answers from plugins replace their own section and leave the rest in place. */
+function merge(shown: Section[], batch: Section[]): Section[] {
+  const keys = new Set(batch.map((section) => section.key));
+  return [...shown.filter((section) => !keys.has(section.key)), ...batch];
+}
+
+function failure(message: string): Section {
+  return { key: "error", title: "Error", rank: 0, rows: [], message, warning: true, pending: false };
 }

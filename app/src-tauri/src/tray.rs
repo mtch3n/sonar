@@ -12,8 +12,8 @@ use tauri::{
 };
 
 use crate::{
-    hotkey,
     indexer::{Indexer, Status},
+    launcher::Launcher,
     updater, window,
 };
 
@@ -72,6 +72,7 @@ struct Flags {
 pub struct Tray {
     icon: TrayIcon,
     status: MenuItem<Wry>,
+    open: MenuItem<Wry>,
     update: MenuItem<Wry>,
     flags: Arc<Mutex<Flags>>,
 }
@@ -79,15 +80,18 @@ pub struct Tray {
 pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
     let status = MenuItem::with_id(app, "status", "Starting…", false, None::<&str>)?;
     let update = MenuItem::with_id(app, "update", CHECK_FOR_UPDATES, true, None::<&str>)?;
-    let open_label = format!("Open Sonar    {}", hotkey::LABEL);
+    let open = MenuItem::with_id(app, "open", "Open Sonar", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
             &status,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItem::with_id(app, "open", open_label, true, None::<&str>)?,
+            &open,
             &MenuItem::with_id(app, "reindex", "Reindex now", true, None::<&str>)?,
             &update,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "plugins", "Plugins…", true, None::<&str>)?,
+            &MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItem::with_id(app, "quit", "Quit Sonar", true, None::<&str>)?,
         ],
@@ -106,6 +110,8 @@ pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
                 }
             }
             "update" => updater::check(app, true),
+            "plugins" => window::show_with(app, "plugins "),
+            "settings" => open_settings(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -123,6 +129,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
     let tray = Tray {
         icon,
         status,
+        open,
         update,
         flags: Arc::new(Mutex::new(Flags {
             indexing: true,
@@ -167,6 +174,10 @@ impl Tray {
         });
     }
 
+    pub fn show_shortcut(&self, label: &str) {
+        let _ = self.open.set_text(format!("Open Sonar    {label}"));
+    }
+
     pub fn show_update(&self, text: &str, enabled: bool) {
         let _ = self.update.set_text(text);
         let _ = self.update.set_enabled(enabled);
@@ -189,6 +200,20 @@ impl Tray {
             let _ = self.icon.set_icon(Some(image));
             let _ = self.icon.set_icon_as_template(cfg!(target_os = "macos"));
         }
+    }
+}
+
+/// Opens `settings.toml` in the default editor, writing it first if it's missing.
+fn open_settings(app: &AppHandle) {
+    use tauri_plugin_opener::OpenerExt;
+
+    let Some(launcher) = app.try_state::<Launcher>() else {
+        return;
+    };
+    let path = &launcher.paths().settings;
+    let _ = crate::settings::Settings::load(path);
+    if let Err(err) = app.opener().open_path(path.to_string_lossy(), None::<&str>) {
+        eprintln!("sonar: couldn't open {}: {err}", path.display());
     }
 }
 

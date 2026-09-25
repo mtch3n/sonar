@@ -3,7 +3,7 @@ use std::path::MAIN_SEPARATOR;
 use anyhow::Result;
 use rusqlite::{Connection, params_from_iter, types::Value};
 
-use crate::{Kind, Query, Term, Within, words::words};
+use crate::{DEFAULT_LIMIT, Kind, Query, Term, Within, words::words};
 
 const AFTER_SEPARATOR: char = (MAIN_SEPARATOR as u8 + 1) as char;
 
@@ -97,7 +97,7 @@ pub(crate) fn search(conn: &Connection, q: &Query, now: i64) -> Result<Vec<Hit>>
         sql.push_str(" ORDER BY f.project_id IS NOT NULL, f.mtime DESC");
     }
     sql.push_str(" LIMIT ?");
-    args.push(Value::Integer(q.limit as i64));
+    args.push(Value::Integer(q.limit.unwrap_or(DEFAULT_LIMIT) as i64));
 
     let mut stmt = conn.prepare(&sql)?;
     let hits = stmt
