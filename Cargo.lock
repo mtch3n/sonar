@@ -4271,6 +4271,7 @@ dependencies = [
  "anyhow",
  "jiff",
  "serde",
+ "serde_json",
  "sonar-core",
  "tauri",
  "tauri-build",
