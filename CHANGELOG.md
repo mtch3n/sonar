@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.2.0] - 2026-09-25
 
 - The search bar opens at the height of what it shows. On Linux it opened with empty space below the bar, because GTK kept the window at the web view's natural height
 - Calculator and unit conversions, like `2^10` or `5 km to miles`; Enter copies the answer
