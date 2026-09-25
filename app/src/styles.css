@@ -1,13 +1,13 @@
 :root {
   color-scheme: light dark;
-  --panel: rgba(248, 248, 250, 0.96);
-  --border: rgba(0, 0, 0, 0.14);
-  --text: #1d1d1f;
-  --muted: rgba(29, 29, 31, 0.56);
+  --panel: rgba(255, 255, 255, 0.97);
+  --border: rgba(0, 0, 0, 0.12);
+  --text: #111111;
+  --muted: rgba(17, 17, 17, 0.52);
   --divider: rgba(0, 0, 0, 0.08);
-  --accent: #0a64d8;
-  --on-accent: #ffffff;
-  --warning: #b45309;
+  --selected: rgba(0, 0, 0, 0.06);
+  --accent: #ff5a1f;
+  --warning: #c2410c;
   font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans CJK SC", sans-serif;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
@@ -15,13 +15,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --panel: rgba(30, 31, 34, 0.96);
+    --panel: rgba(17, 17, 17, 0.97);
     --border: rgba(255, 255, 255, 0.12);
-    --text: #f2f2f4;
-    --muted: rgba(242, 242, 244, 0.52);
+    --text: #f5f5f5;
+    --muted: rgba(245, 245, 245, 0.5);
     --divider: rgba(255, 255, 255, 0.08);
-    --accent: #0a6fdf;
-    --warning: #fbbf24;
+    --selected: rgba(255, 255, 255, 0.08);
+    --warning: #fdba74;
   }
 }
 
@@ -134,8 +134,8 @@ body {
 }
 
 .hit[aria-selected="true"] {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--selected);
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 
 .hit-text {
@@ -166,42 +166,19 @@ body {
   white-space: nowrap;
 }
 
-.hit[aria-selected="true"] .hit-folder,
-.hit[aria-selected="true"] .hit-meta {
-  color: rgba(255, 255, 255, 0.78);
-}
-
 .kind {
   display: grid;
   place-items: center;
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  color: var(--tint);
-  background: color-mix(in srgb, var(--tint) 16%, transparent);
+  color: var(--muted);
+  background: var(--divider);
 }
 
 .hit[aria-selected="true"] .kind {
-  color: var(--on-accent);
-  background: rgba(255, 255, 255, 0.2);
+  color: var(--text);
 }
-
-.kind-project { --tint: #14b8a6; }
-.kind-folder { --tint: #38bdf8; }
-.kind-app { --tint: #818cf8; }
-.kind-code { --tint: #60a5fa; }
-.kind-script { --tint: #4ade80; }
-.kind-key { --tint: #f59e0b; }
-.kind-pdf { --tint: #f87171; }
-.kind-doc { --tint: #94a3b8; }
-.kind-sheet { --tint: #22c55e; }
-.kind-slides { --tint: #fb923c; }
-.kind-image { --tint: #c084fc; }
-.kind-video { --tint: #f472b6; }
-.kind-audio { --tint: #fb7185; }
-.kind-archive { --tint: #d4a373; }
-.kind-config { --tint: #a1a1aa; }
-.kind-other { --tint: #a1a1aa; }
 
 .footer {
   flex: none;

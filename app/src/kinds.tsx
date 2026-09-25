@@ -40,7 +40,7 @@ const ICONS: Record<string, LucideIcon> = {
 export function KindIcon({ kind }: { kind: string }) {
   const Icon = ICONS[kind] ?? File;
   return (
-    <span className={`kind kind-${kind}`} title={kind}>
+    <span className="kind" title={kind}>
       <Icon size={18} strokeWidth={2} />
     </span>
   );
