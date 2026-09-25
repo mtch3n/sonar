@@ -27,7 +27,10 @@ pub fn setup(app: &App) -> Result<()> {
 
 #[cfg(target_os = "linux")]
 pub fn setup(_app: &App) -> Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = match std::env::var_os("APPIMAGE") {
+        Some(appimage) => std::path::PathBuf::from(appimage),
+        None => std::env::current_exe()?,
+    };
     let command = format!("\"{}\" {}", exe.display(), crate::TOGGLE);
     let on_gnome = std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.contains("GNOME"));
     if on_gnome {
