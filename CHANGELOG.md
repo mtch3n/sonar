@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.1] - 2026-09-25
+
+- Settings… in the tray opens settings.toml again, and files and links open in their apps, from the AppImage too
+- Python plugins such as Web search run from the AppImage; programs Sonar starts no longer inherit the AppImage's Python, GTK and library paths
+- The search bar opens on the screen the pointer is on, and never straddles two screens
+
 ## [0.2.0] - 2026-09-25
 
 - The search bar opens at the height of what it shows. On Linux it opened with empty space below the bar, because GTK kept the window at the web view's natural height
