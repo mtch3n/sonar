@@ -1,0 +1,20 @@
+[package]
+name = "sonar-cli"
+description = "Command-line search for the Sonar index"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "sonar"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+sonar-core.workspace = true

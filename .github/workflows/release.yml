@@ -1,0 +1,172 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.create.outputs.id }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag matches the version
+        run: |
+          version=$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
+            exit 1
+          fi
+      - name: Create a draft release
+        id: create
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" 'index($0, "## [" v "]") == 1 { found = 1; next } found && /^## / { exit } found' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+          id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
+            -f tag_name="$GITHUB_REF_NAME" \
+            -f name="Sonar $version" \
+            -F body=@notes.md \
+            -F draft=true \
+            -F prerelease="$prerelease" \
+            --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
+
+  app:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            args: ""
+          - os: macos-latest
+            args: --target universal-apple-darwin
+          - os: windows-latest
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf xdg-utils
+      - name: Add both Mac architectures
+        if: runner.os == 'macOS'
+        run: |
+          cargo --version
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: app/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - uses: Swatinem/rust-cache@v2
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          projectPath: app
+          tauriScript: pnpm tauri
+          releaseId: ${{ needs.draft.outputs.id }}
+          args: ${{ matrix.args }}
+
+  cli:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: universal-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          mkdir out
+          if [ "$TARGET" = universal-apple-darwin ]; then
+            cargo --version
+            rustup target add aarch64-apple-darwin x86_64-apple-darwin
+            cargo build --release --locked -p sonar-cli --target aarch64-apple-darwin
+            cargo build --release --locked -p sonar-cli --target x86_64-apple-darwin
+            lipo -create -output out/sonar \
+              target/aarch64-apple-darwin/release/sonar \
+              target/x86_64-apple-darwin/release/sonar
+          elif [ "$RUNNER_OS" = Windows ]; then
+            cargo build --release --locked -p sonar-cli
+            cp target/release/sonar.exe out/
+          else
+            cargo build --release --locked -p sonar-cli
+            cp target/release/sonar out/
+          fi
+          cp LICENSE README.md out/
+      - name: Upload
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ matrix.target }}
+          RELEASE_ID: ${{ needs.draft.outputs.id }}
+        run: |
+          name="sonar-cli-${GITHUB_REF_NAME#v}-$TARGET"
+          if [ "$RUNNER_OS" = Windows ]; then
+            asset="$name.zip"
+            (cd out && 7z a "../$asset" .)
+          else
+            asset="$name.tar.gz"
+            tar -czf "$asset" -C out .
+          fi
+          gh api --method POST \
+            -H "Content-Type: application/octet-stream" \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$asset" \
+            --input "$asset" > /dev/null
+
+  publish:
+    needs: [draft, app, cli]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Add checksums and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ID: ${{ needs.draft.outputs.id }}
+        run: |
+          mkdir assets && cd assets
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq '.[] | "\(.id) \(.name)"' |
+            while read -r asset_id name; do
+              gh api -H "Accept: application/octet-stream" "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id" > "$name"
+            done
+          sha256sum -- * > SHA256SUMS.txt
+          gh api --method POST \
+            -H "Content-Type: text/plain" \
+            "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=SHA256SUMS.txt" \
+            --input SHA256SUMS.txt > /dev/null
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false > /dev/null

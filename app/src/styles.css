@@ -1,0 +1,224 @@
+:root {
+  color-scheme: light dark;
+  --panel: rgba(248, 248, 250, 0.96);
+  --border: rgba(0, 0, 0, 0.14);
+  --text: #1d1d1f;
+  --muted: rgba(29, 29, 31, 0.56);
+  --divider: rgba(0, 0, 0, 0.08);
+  --accent: #0a64d8;
+  --on-accent: #ffffff;
+  --warning: #b45309;
+  font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans", "Noto Sans CJK SC", sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --panel: rgba(30, 31, 34, 0.96);
+    --border: rgba(255, 255, 255, 0.12);
+    --text: #f2f2f4;
+    --muted: rgba(242, 242, 244, 0.52);
+    --divider: rgba(255, 255, 255, 0.08);
+    --accent: #0a6fdf;
+    --warning: #fbbf24;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+}
+
+body {
+  color: var(--text);
+  cursor: default;
+  user-select: none;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 62px;
+  padding: 0 18px;
+}
+
+.bar.divided {
+  border-bottom: 1px solid var(--divider);
+}
+
+.bar-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.bar input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 22px;
+  caret-color: var(--accent);
+}
+
+.bar input::placeholder {
+  color: var(--muted);
+}
+
+.message {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 20px;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.message.error {
+  color: var(--warning);
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.results::-webkit-scrollbar {
+  width: 8px;
+}
+
+.results::-webkit-scrollbar-thumb {
+  background: var(--divider);
+  border-radius: 4px;
+}
+
+.hit {
+  display: grid;
+  grid-template-columns: 32px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  margin: 0 8px;
+  padding: 0 10px;
+  border-radius: 8px;
+}
+
+.hit[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.hit-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.hit-name,
+.hit-folder {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit-name {
+  font-size: 14.5px;
+  font-weight: 500;
+}
+
+.hit-folder,
+.hit-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hit-meta {
+  white-space: nowrap;
+}
+
+.hit[aria-selected="true"] .hit-folder,
+.hit[aria-selected="true"] .hit-meta {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.kind {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--tint);
+  background: color-mix(in srgb, var(--tint) 16%, transparent);
+}
+
+.hit[aria-selected="true"] .kind {
+  color: var(--on-accent);
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.kind-project { --tint: #14b8a6; }
+.kind-folder { --tint: #38bdf8; }
+.kind-app { --tint: #818cf8; }
+.kind-code { --tint: #60a5fa; }
+.kind-script { --tint: #4ade80; }
+.kind-key { --tint: #f59e0b; }
+.kind-pdf { --tint: #f87171; }
+.kind-doc { --tint: #94a3b8; }
+.kind-sheet { --tint: #22c55e; }
+.kind-slides { --tint: #fb923c; }
+.kind-image { --tint: #c084fc; }
+.kind-video { --tint: #f472b6; }
+.kind-audio { --tint: #fb7185; }
+.kind-archive { --tint: #d4a373; }
+.kind-config { --tint: #a1a1aa; }
+.kind-other { --tint: #a1a1aa; }
+
+.footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 18px;
+  border-top: 1px solid var(--divider);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.keys kbd {
+  margin: 0 4px 0 12px;
+  padding: 1px 6px;
+  border: 1px solid var(--divider);
+  border-radius: 4px;
+  font: inherit;
+}
