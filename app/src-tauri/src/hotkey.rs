@@ -74,6 +74,9 @@ mod gnome {
     fn gsettings(args: &[&str]) -> Result<String> {
         let output = Command::new("gsettings")
             .args(args)
+            .env_remove("LD_LIBRARY_PATH")
+            .env_remove("GSETTINGS_SCHEMA_DIR")
+            .env_remove("GIO_EXTRA_MODULES")
             .output()
             .context("running gsettings")?;
         if !output.status.success() {
