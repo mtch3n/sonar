@@ -79,6 +79,13 @@ pnpm tauri build
 
 The command-line tool builds on its own with `cargo build --release -p sonar-cli`.
 
+## Roadmap
+
+- [Search inside files](https://github.com/mtch3n/sonar/issues/1)
+- [Find duplicate and near-duplicate files](https://github.com/mtch3n/sonar/issues/2)
+- [Summaries, embeddings and natural-language search](https://github.com/mtch3n/sonar/issues/3)
+- [Labels and tags](https://github.com/mtch3n/sonar/issues/4)
+
 ## License
 
 [MIT](LICENSE)
