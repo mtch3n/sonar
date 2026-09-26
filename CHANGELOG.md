@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.2.2] - 2026-09-25
+
+- The search bar is centered on one screen again. With several monitors side by side it could open across two, because a hidden window reported the wrong width
+
 ## [0.2.1] - 2026-09-25
 
 - Settings… in the tray opens settings.toml again, and files and links open in their apps, from the AppImage too
