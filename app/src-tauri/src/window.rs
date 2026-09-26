@@ -39,14 +39,15 @@ pub fn hide(app: &AppHandle) {
 fn present(window: &WebviewWindow) {
     let app = window.app_handle();
     crate::reload(app);
-    if let Some(launcher) = app.try_state::<Launcher>() {
-        let _ = fit_width(window, launcher.current_settings().appearance.width);
-    }
-    let _ = place(window);
+    let width = app
+        .try_state::<Launcher>()
+        .map_or(720, |launcher| launcher.current_settings().appearance.width);
+    let _ = fit_width(window, width);
+    let _ = place(window, width);
     let _ = window.show();
     // Window managers may pick their own spot for a window as it appears, so place it
     // again once it's shown.
-    let _ = place(window);
+    let _ = place(window, width);
     let _ = window.set_focus();
     let _ = window.emit("sonar://shown", ());
 }
@@ -62,7 +63,9 @@ fn fit_width(window: &WebviewWindow, width: u32) -> tauri::Result<()> {
 }
 
 /// Centers the bar near the top of the screen the pointer is on, like Spotlight.
-fn place(window: &WebviewWindow) -> tauri::Result<()> {
+/// `width` comes from the settings: a hidden window on X11 can report a size that has
+/// nothing to do with it, which put the bar across two screens.
+fn place(window: &WebviewWindow, width: u32) -> tauri::Result<()> {
     let under_pointer = match window.cursor_position() {
         Ok(point) => window.monitor_from_point(point.x, point.y)?,
         Err(_) => None,
@@ -75,8 +78,8 @@ fn place(window: &WebviewWindow) -> tauri::Result<()> {
         return Ok(());
     };
     let (area, origin) = (monitor.size(), monitor.position());
-    let size = window.outer_size()?;
-    let x = origin.x + (area.width as i32 - size.width as i32) / 2;
+    let width = (f64::from(width) * monitor.scale_factor()).round() as i32;
+    let x = origin.x + (area.width as i32 - width) / 2;
     let y = origin.y + area.height as i32 / 5;
     window.set_position(PhysicalPosition::new(x, y))
 }
