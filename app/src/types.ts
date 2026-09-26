@@ -35,3 +35,32 @@ export type Outcome =
   | { then: "close" }
   | { then: "fill"; text: string }
   | { then: "refresh"; notice: string };
+
+export type PluginSettings = { enabled: boolean; keyword: string | null };
+
+/** settings.toml, as the Settings window edits it. */
+export type Settings = {
+  shortcut: string;
+  marketplaces: string[];
+  appearance: { theme: "system" | "light" | "dark"; accent: string; width: number; rows: number };
+  search: { limit: number };
+  index: { rescan_minutes: number };
+  updates: { check: boolean };
+  plugins: Record<string, PluginSettings>;
+};
+
+export type PluginInfo = {
+  id: string;
+  name: string;
+  description: string | null;
+  keyword: string | null;
+  image: string | null;
+  icon: string;
+};
+
+export type Editor = {
+  settings: Settings;
+  plugins: PluginInfo[];
+  path: string;
+  problem: string | null;
+};

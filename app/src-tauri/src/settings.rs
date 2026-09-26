@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, fs, path::Path};
 use serde::{Deserialize, Serialize};
 use sonar_plugins::store::Repo;
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
     pub shortcut: String,
@@ -35,25 +35,25 @@ pub enum Theme {
     Dark,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Search {
     pub limit: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Index {
     pub rescan_minutes: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Updates {
     pub check: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PluginSettings {
     pub enabled: bool,
@@ -150,7 +150,7 @@ impl Settings {
         Ok(settings)
     }
 
-    fn check(&self) -> Result<(), String> {
+    pub fn check(&self) -> Result<(), String> {
         Shortcut::parse(&self.shortcut)?;
         for repo in &self.marketplaces {
             Repo::parse(repo)
@@ -210,6 +210,85 @@ pub fn add_marketplace(path: &Path, repo: &Repo) -> Result<(), String> {
         list.push(name);
     }
     fs::write(path, doc.to_string()).map_err(|err| err.to_string())
+}
+
+/// Writes `settings` into the settings file, keeping the comments and layout of what
+/// is there. A file too broken to read is kept next to it as `settings.toml.bak`.
+pub fn save(path: &Path, settings: &Settings) -> Result<(), String> {
+    settings.check()?;
+    let text = fs::read_to_string(path).unwrap_or_else(|_| template());
+    let mut written = write_into(&text, settings)?;
+    // What was there may hold mistakes the form doesn't cover, like a misspelled key.
+    // Start again from the default file then, and keep the old one.
+    if Settings::parse(&written).is_err() {
+        let _ = fs::copy(path, path.with_extension("toml.bak"));
+        written = write_into(&template(), settings)?;
+    }
+    fs::write(path, written).map_err(|err| format!("writing {}: {err}", path.display()))
+}
+
+/// `text` with the values of `settings`, keeping its comments where it can.
+fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
+    use toml_edit::{Array, DocumentMut, Item, Table, value};
+
+    let mut doc: DocumentMut = text
+        .parse()
+        .or_else(|_| template().parse())
+        .map_err(|err: toml_edit::TomlError| err.to_string())?;
+    let a = &settings.appearance;
+    let theme = match a.theme {
+        Theme::System => "system",
+        Theme::Light => "light",
+        Theme::Dark => "dark",
+    };
+    let marketplaces: Array = settings.marketplaces.iter().map(String::as_str).collect();
+    set(&mut doc["shortcut"], settings.shortcut.as_str().into());
+    set(&mut doc["marketplaces"], marketplaces.into());
+    set(&mut doc["appearance"]["theme"], theme.into());
+    set(&mut doc["appearance"]["accent"], a.accent.as_str().into());
+    set(&mut doc["appearance"]["width"], i64::from(a.width).into());
+    set(&mut doc["appearance"]["rows"], i64::from(a.rows).into());
+    set(
+        &mut doc["search"]["limit"],
+        (settings.search.limit as i64).into(),
+    );
+    set(
+        &mut doc["index"]["rescan_minutes"],
+        (settings.index.rescan_minutes as i64).into(),
+    );
+    set(&mut doc["updates"]["check"], settings.updates.check.into());
+
+    // Only plugins that differ from their defaults get a table.
+    let mut plugins = Table::new();
+    plugins.set_implicit(true);
+    for (id, plugin) in &settings.plugins {
+        if *plugin == PluginSettings::default() {
+            continue;
+        }
+        let mut table = Table::new();
+        if !plugin.enabled {
+            table["enabled"] = value(false);
+        }
+        if let Some(keyword) = &plugin.keyword {
+            table["keyword"] = value(keyword.as_str());
+        }
+        plugins.insert(id, Item::Table(table));
+    }
+    if plugins.is_empty() {
+        doc.remove("plugins");
+    } else {
+        doc["plugins"] = Item::Table(plugins);
+    }
+    Ok(doc.to_string())
+}
+
+/// Replaces a value, keeping the comment written after it.
+fn set(item: &mut toml_edit::Item, new: toml_edit::Value) {
+    let decor = item.as_value().map(|old| old.decor().clone());
+    *item = toml_edit::Item::Value(new);
+    if let (Some(decor), Some(value)) = (decor, item.as_value_mut()) {
+        *value.decor_mut() = decor;
+    }
 }
 
 fn within<T: PartialOrd + std::fmt::Display>(
@@ -404,6 +483,53 @@ mod tests {
         for bad in ["space", "alt+", "alt+enter", "hyper+k", ""] {
             assert!(Shortcut::parse(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn saving_keeps_comments_and_writes_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.toml");
+        fs::write(&path, template()).unwrap();
+        let mut settings = Settings::default();
+        settings.appearance.theme = Theme::Dark;
+        settings.appearance.width = 900;
+        settings.plugins.insert(
+            "calculator".into(),
+            PluginSettings {
+                enabled: false,
+                keyword: None,
+            },
+        );
+        settings.plugins.insert(
+            "web-search".into(),
+            PluginSettings {
+                enabled: true,
+                keyword: Some("w".into()),
+            },
+        );
+        settings
+            .plugins
+            .insert("same".into(), PluginSettings::default());
+        save(&path, &settings).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# color of the selection"), "{text}");
+        assert!(text.contains("theme = \"dark\"    # \"system\""), "{text}");
+        assert!(text.contains("[plugins.web-search]"), "{text}");
+        let mut expected = settings.clone();
+        expected.plugins.remove("same");
+        assert_eq!(Settings::parse(&text).unwrap(), expected);
+
+        settings.appearance.rows = 99;
+        assert!(
+            save(&path, &settings).is_err(),
+            "invalid settings are not written"
+        );
+
+        fs::write(&path, "[appearance]\nwidht = 900\n").unwrap();
+        save(&path, &Settings::default()).unwrap();
+        assert_eq!(Settings::load(&path).unwrap(), Settings::default());
+        let old = fs::read_to_string(path.with_extension("toml.bak")).unwrap();
+        assert!(old.contains("widht"));
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { Search, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { applyLook } from "./look";
 import { Results, rowId } from "./Results";
 import type { Outcome, Row, Section, View } from "./types";
 import "./styles.css";
@@ -93,16 +94,8 @@ export default function App() {
 
   useEffect(() => {
     if (!view) return;
-    const root = document.documentElement;
-    root.style.setProperty("--accent", view.accent);
-    root.style.setProperty("--rows", String(view.rows));
-    const dark = matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      root.dataset.theme = view.theme === "system" ? (dark.matches ? "dark" : "light") : view.theme;
-    };
-    apply();
-    dark.addEventListener("change", apply);
-    return () => dark.removeEventListener("change", apply);
+    document.documentElement.style.setProperty("--rows", String(view.rows));
+    return applyLook(view.theme, view.accent);
   }, [view]);
 
   // The window is as tall as the panel's content, so it never shows empty space.

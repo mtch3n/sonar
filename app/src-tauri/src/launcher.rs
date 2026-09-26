@@ -217,6 +217,17 @@ impl Launcher {
         *write(&self.session) = Arc::new(session);
     }
 
+    /// Every installed plugin, on or off.
+    pub fn installed(&self) -> Vec<Manifest> {
+        let session = self.session();
+        session
+            .plugins
+            .iter()
+            .map(|plugin| plugin.external.manifest.clone())
+            .chain(session.disabled.iter().cloned())
+            .collect()
+    }
+
     pub fn add_notice(&self, notice: String) {
         lock(&self.notices).push(notice);
     }

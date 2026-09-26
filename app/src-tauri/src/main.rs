@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod editor;
 mod host;
 mod hotkey;
 mod indexer;
@@ -77,7 +78,9 @@ fn main() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
-            WindowEvent::Focused(false) => window::hide(window.app_handle()),
+            WindowEvent::Focused(false) if window.label() == "main" => {
+                window::hide(window.app_handle())
+            }
             WindowEvent::ThemeChanged(_) => {
                 if let Some(tray) = window.try_state::<Tray>() {
                     tray.refresh();
@@ -88,7 +91,10 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             launcher::search,
             launcher::activate,
-            launcher::view
+            launcher::view,
+            editor::settings_get,
+            editor::settings_save,
+            editor::settings_open_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running Sonar");

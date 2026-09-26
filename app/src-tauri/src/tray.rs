@@ -13,7 +13,6 @@ use tauri::{
 
 use crate::{
     indexer::{Indexer, Status},
-    launcher::Launcher,
     updater, window,
 };
 
@@ -111,7 +110,7 @@ pub fn create(app: &AppHandle) -> tauri::Result<Tray> {
             }
             "update" => updater::check(app, true),
             "plugins" => window::show_with(app, "plugins "),
-            "settings" => open_settings(app),
+            "settings" => crate::editor::open(app),
             "quit" => app.exit(0),
             _ => {}
         })
@@ -200,18 +199,6 @@ impl Tray {
             let _ = self.icon.set_icon(Some(image));
             let _ = self.icon.set_icon_as_template(cfg!(target_os = "macos"));
         }
-    }
-}
-
-/// Opens `settings.toml` in the default editor, writing it first if it's missing.
-fn open_settings(app: &AppHandle) {
-    let Some(launcher) = app.try_state::<Launcher>() else {
-        return;
-    };
-    let path = &launcher.paths().settings;
-    let _ = crate::settings::Settings::load(path);
-    if let Err(err) = crate::host::open(app, &path.to_string_lossy()) {
-        eprintln!("sonar: couldn't open {}: {err}", path.display());
     }
 }
 
