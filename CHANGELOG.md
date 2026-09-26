@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.3.0] - 2026-09-25
+
+- A Settings window, opened with Settings… in the tray: the shortcut, theme, accent color, width, visible results, result limit, rescan interval, update checks, plugins and marketplaces. Saving applies the changes at once and keeps the comments in settings.toml
+- Choosing the Plugins suggestion, or typing a plugin's keyword and a space, opens it. The space was dropped, so the same suggestion came back
+
 ## [0.2.2] - 2026-09-25
 
 - The search bar is centered on one screen again. With several monitors side by side it could open across two, because a hidden window reported the wrong width

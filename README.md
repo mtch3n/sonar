@@ -65,7 +65,7 @@ To write a plugin or run a marketplace, see [docs/plugins.md](docs/plugins.md).
 
 ## Settings
 
-Settings… in the tray menu opens `settings.toml`, which Sonar writes on first run:
+Settings… in the tray menu opens the Settings window. Everything in it is saved to `settings.toml`, which you can also edit by hand; Sonar writes it on first run:
 
 - Linux: `~/.config/sonar/settings.toml`
 - macOS: `~/Library/Application Support/sonar/settings.toml`
