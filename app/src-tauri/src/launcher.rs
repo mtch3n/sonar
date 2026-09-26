@@ -932,7 +932,7 @@ pub async fn search(
     query: String,
     on_results: Channel<Vec<Section>>,
 ) -> Result<(), String> {
-    launcher.search(query.trim(), &on_results).await
+    launcher.search(query.trim_start(), &on_results).await
 }
 
 #[tauri::command]
