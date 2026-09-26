@@ -32,7 +32,8 @@ export default function App() {
   const panel = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const searched = useRef("");
-  const text = query.trim();
+  // Only leading spaces go: the space after a keyword like "plugins " is what opens it.
+  const text = query.trimStart();
 
   useEffect(() => {
     if (!text) {
@@ -227,8 +228,8 @@ export default function App() {
           {nothing && (
             <p>
               {view?.indexing
-                ? `No matches for “${text}” yet. Sonar is still indexing your home folder.`
-                : `No matches for “${text}”`}
+                ? `No matches for “${text.trimEnd()}” yet. Sonar is still indexing your home folder.`
+                : `No matches for “${text.trimEnd()}”`}
             </p>
           )}
         </div>
