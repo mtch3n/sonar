@@ -18,6 +18,7 @@ anyhow.workspace = true
 jiff.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+shell-words.workspace = true
 sonar-core.workspace = true
 sonar-plugins.workspace = true
 tauri = { version = "2.11.6", features = ["tray-icon", "image-png", "macos-private-api"] }

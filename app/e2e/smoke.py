@@ -25,7 +25,7 @@ DRIVER = f"http://127.0.0.1:{PORT}"
 
 
 class WebDriver:
-    def __init__(self, app: Path, env: dict, log):
+    def __init__(self, app: Path, env: dict, log, args=()):
         self.process = subprocess.Popen(
             ["WebKitWebDriver", f"--port={PORT}"],
             env=env,
@@ -36,7 +36,7 @@ class WebDriver:
         answer = self.call(
             "POST",
             "/session",
-            {"capabilities": {"alwaysMatch": {"webkitgtk:browserOptions": {"binary": str(app), "args": []}}}},
+            {"capabilities": {"alwaysMatch": {"webkitgtk:browserOptions": {"binary": str(app), "args": list(args)}}}},
         )
         self.session = answer["sessionId"]
 
@@ -74,6 +74,19 @@ class WebDriver:
         finally:
             self.process.terminate()
             self.process.wait(10)
+
+
+def running_in(home: Path) -> list:
+    """Processes started with `home` as their home folder: Sonar and its helpers."""
+    marker = f"HOME={home}".encode()
+    found = []
+    for proc in Path("/proc").iterdir():
+        try:
+            if proc.name.isdigit() and marker in (proc / "environ").read_bytes().split(b"\0"):
+                found.append(int(proc.name))
+        except OSError:
+            pass
+    return found
 
 
 def port_open(port: int) -> bool:
@@ -167,9 +180,25 @@ def check_search_window(driver: WebDriver):
     print("ok  arithmetic")
 
 
-def check_settings_window(driver: WebDriver, settings: Path):
-    driver.run("location.hash = '#settings'; location.reload();")
-    wait_for(lambda: driver.run("return !!document.querySelector('h1')"), 15, "the Settings window")
+def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Path):
+    # Asking the running Sonar, as a desktop shortcut would, opens its Settings window.
+    subprocess.run([str(app), "--settings"], env=env, timeout=15, check=True)
+
+    def switch_to_settings():
+        for handle in driver.call("GET", f"/session/{driver.session}/window/handles"):
+            driver.call("POST", f"/session/{driver.session}/window", {"handle": handle})
+            if driver.run("return location.hash") == "#settings":
+                return handle
+
+    wait_for(switch_to_settings, 15, "the Settings window")
+
+    title = wait_for(
+        lambda: driver.run("return document.querySelector('.titlebar h1')?.textContent"), 15, "the title bar"
+    )
+    assert title == "Settings", title
+    buttons = driver.run("return [...document.querySelectorAll('.window-buttons button')].map(b => b.ariaLabel)")
+    assert buttons == ["Minimize", "Close"], buttons
+    print("ok  the window's own title bar")
 
     driver.click("button[aria-label='Web search settings']")
     shown = driver.run("return document.querySelector(\"select[aria-label='Listed first']\").value")
@@ -181,12 +210,14 @@ def check_settings_window(driver: WebDriver, settings: Path):
 
     driver.click("select[aria-label='Listed first'] option[value='duckduckgo']")
     driver.click("button[aria-label='Download exchange rates']")
+    driver.type("input[aria-label='Code editor']", "code --new-window")
     driver.click("button.primary")
     wait_for(lambda: driver.run("return document.querySelector('.status')?.textContent") == "Saved", 10, "Saved")
     text = settings.read_text()
     assert 'first = "duckduckgo"' in text and "rates = false" in text, text
     assert 'currency = "JPY"' in text, text
-    print("ok  saving writes plugin settings to settings.toml")
+    assert '[files]\neditor = "code --new-window"' in text, text
+    print("ok  saving writes plugin settings and the editor to settings.toml")
 
     driver.click("select[aria-label='Listed first'] option[value='google']")
     driver.click("button.primary")
@@ -202,12 +233,15 @@ def main():
     driver = WebDriver(app, env, log)
     try:
         check_search_window(driver)
-        check_settings_window(driver, root / "home" / ".config" / "sonar" / "settings.toml")
+        check_settings_window(driver, app, env, root / "home" / ".config" / "sonar" / "settings.toml")
     except BaseException:
         print(f"failed; Sonar's home folder and the driver log are in {root}")
         raise
     finally:
         driver.quit()
+        # Sonar lives in the tray, so it outlasts the session by a moment.
+        home = root / "home"
+        wait_for(lambda: not running_in(home), 15, "Sonar to quit")
     shutil.rmtree(root)
     print("all end-to-end checks passed")
 

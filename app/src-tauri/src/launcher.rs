@@ -13,7 +13,7 @@ use std::{
 };
 
 use serde::Serialize;
-use sonar_core::{Hit, Index, Paths, Query};
+use sonar_core::{Hit, Index, Kind, Paths, Query};
 use sonar_plugins::{
     Action, Calculator, External, Item, Manifest, calculator,
     store::{self, Found, Marketplace, Repo, Source},
@@ -103,6 +103,8 @@ enum Command {
     Add(Repo),
     /// The calculator's answer as a bare number, like `3176.54` for `3,176.54 TWD`.
     CopyNumber(String),
+    /// A project or code file, opened in the editor from the settings.
+    Edit(String),
 }
 
 #[derive(Clone, Serialize)]
@@ -356,7 +358,10 @@ impl Launcher {
         match hits {
             Ok(hits) => {
                 let now = jiff::Timestamp::now().as_second();
-                let drafts = hits.into_iter().map(|hit| file_draft(hit, home, now));
+                let editor = read(&self.settings).editor().ok().flatten().is_some();
+                let drafts = hits
+                    .into_iter()
+                    .map(|hit| file_draft(hit, home, now, editor));
                 section("files", "Files", 20, self.rows(generation, drafts), None)
             }
             Err(err) => failed("files", "Files", 20, format!("{err:#}")),
@@ -536,6 +541,15 @@ impl Launcher {
         match command {
             Command::Plugin { action, dir } => self.act(app, action, dir.as_deref()),
             Command::CopyNumber(number) => self.act(app, Action::Copy(number), None),
+            Command::Edit(path) => {
+                let editor = read(&self.settings).editor()?;
+                let Some(mut argv) = editor else {
+                    return self.act(app, Action::Open(path), None);
+                };
+                argv.push(path);
+                run(&argv, &self.paths.home)?;
+                Ok(close(app))
+            }
             Command::Install {
                 id,
                 name,
@@ -735,6 +749,7 @@ impl Command {
             Command::Uninstall { .. } => "Remove",
             Command::Add(_) => "Add",
             Command::CopyNumber(_) => "Copy number",
+            Command::Edit(_) => "Open in editor",
         }
     }
 }
@@ -857,7 +872,10 @@ fn installed_draft(manifest: &Manifest, keyword: Option<&str>, enabled: bool) ->
     }
 }
 
-fn file_draft(hit: Hit, home: &Path, now: i64) -> Draft {
+/// Kinds that open in the editor from the settings, when there is one.
+const EDITED: [Kind; 4] = [Kind::Project, Kind::Code, Kind::Script, Kind::Config];
+
+fn file_draft(hit: Hit, home: &Path, now: i64, editor: bool) -> Draft {
     let folder = Path::new(&hit.path)
         .parent()
         .map(|parent| match parent.strip_prefix(home) {
@@ -882,7 +900,11 @@ fn file_draft(hit: Hit, home: &Path, now: i64) -> Draft {
         meta: Some(meta),
         icon: hit.kind.as_str(),
         image: None,
-        action: open(Action::Open(hit.path.clone())),
+        action: if editor && EDITED.contains(&hit.kind) {
+            Command::Edit(hit.path.clone())
+        } else {
+            open(Action::Open(hit.path.clone()))
+        },
         alt: Some(open(Action::Reveal(hit.path))),
     }
 }
@@ -1082,13 +1104,33 @@ mod tests {
             line: line.map(str::to_owned),
         };
         let folder = format!("~{MAIN_SEPARATOR}scripts");
-        let by_name = file_draft(hit(None), home, 0);
+        let by_name = file_draft(hit(None), home, 0, false);
         assert_eq!(by_name.subtitle, Some(folder.clone()));
-        let by_text = file_draft(hit(Some("rsync -av ~/Pictures nas:")), home, 0);
+        let by_text = file_draft(hit(Some("rsync -av ~/Pictures nas:")), home, 0, false);
         assert_eq!(
             by_text.subtitle,
             Some(format!("rsync -av ~/Pictures nas: · {folder}"))
         );
+    }
+
+    #[test]
+    fn code_opens_in_the_editor_when_there_is_one() {
+        let home = Path::new("/home/me");
+        let hit = |name: &str, kind| Hit {
+            path: format!("/home/me/{name}"),
+            name: name.into(),
+            kind,
+            size: None,
+            mtime: 0,
+            line: None,
+        };
+        let project = file_draft(hit("sonar", Kind::Project), home, 0, true);
+        assert!(matches!(&project.action, Command::Edit(path) if path == "/home/me/sonar"));
+        assert_eq!(project.action.label(), "Open in editor");
+        let photo = file_draft(hit("cat.png", Kind::Image), home, 0, true);
+        assert_eq!(photo.action.label(), "Open");
+        let no_editor = file_draft(hit("main.rs", Kind::Code), home, 0, false);
+        assert_eq!(no_editor.action.label(), "Open");
     }
 
     #[test]

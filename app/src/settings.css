@@ -37,11 +37,47 @@ html.page #root {
   margin-inline: auto;
 }
 
-h1 {
-  margin-bottom: 20px;
-  font-size: 20px;
+/* On Linux the window has no system frame: the page is its rounded card. */
+html.page[data-platform="linux"] {
+  background: transparent;
+}
+
+html.page[data-platform="linux"] body {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.titlebar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 52px;
+  padding: 0 10px 0 32px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--surface);
+}
+
+/* Room for the traffic lights. */
+html[data-platform="mac"] .titlebar {
+  padding-left: 84px;
+}
+
+.titlebar h1 {
+  flex: 1;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+.window-buttons {
+  display: flex;
+  gap: 2px;
+}
+
+.window-buttons .close:hover {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
 }
 
 .banner {

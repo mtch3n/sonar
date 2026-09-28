@@ -24,12 +24,15 @@ use crate::{
 
 const TOGGLE: &str = "--toggle";
 const BACKGROUND: &str = "--background";
+const SETTINGS: &str = "--settings";
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if args.iter().any(|a| a == TOGGLE) {
                 window::toggle(app);
+            } else if args.iter().any(|a| a == SETTINGS) {
+                editor::open(app);
             } else {
                 window::show(app);
             }
@@ -85,7 +88,9 @@ fn main() {
             updater::watch(app.handle());
             reload(app.handle());
 
-            if !std::env::args().any(|a| a == BACKGROUND) {
+            if std::env::args().any(|a| a == SETTINGS) {
+                editor::open(app.handle());
+            } else if !std::env::args().any(|a| a == BACKGROUND) {
                 window::show(app.handle());
             }
             Ok(())
