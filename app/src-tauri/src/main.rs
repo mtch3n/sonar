@@ -109,12 +109,7 @@ fn main() {
             record_copies(&paths, &settings);
             let meaning_settings = {
                 let settings = settings.clone();
-                move || {
-                    settings
-                        .read()
-                        .map(|s| s.meaning.clone())
-                        .unwrap_or_default()
-                }
+                move || settings.read().map(|s| s.clone()).unwrap_or_default()
             };
             let meaning = {
                 let tray = tray.clone();
@@ -170,6 +165,7 @@ fn main() {
             editor::settings_get,
             editor::settings_save,
             editor::settings_open_file,
+            editor::provider_key_set,
             editor::rates_update
         ])
         .run(tauri::generate_context!())

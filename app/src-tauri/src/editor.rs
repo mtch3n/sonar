@@ -62,6 +62,43 @@ pub struct Editor {
     kinds: Vec<KindLevels>,
     /// The models that can search by meaning.
     models: Vec<ModelChoice>,
+    /// Services with an OpenAI-compatible API.
+    providers: Vec<ProviderInfo>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderInfo {
+    id: String,
+    url: String,
+    /// Whether it runs on this computer.
+    local: bool,
+    /// Whether a key is set, in the keychain or the environment.
+    has_key: bool,
+    key_env: Option<String>,
+    /// Whether Sonar knows it without a table in the settings.
+    known: bool,
+}
+
+fn providers(settings: &Settings) -> Vec<ProviderInfo> {
+    settings
+        .provider_ids()
+        .into_iter()
+        .filter_map(|id| {
+            let provider = settings.provider(&id)?;
+            let own = settings.provider_settings(&id)?;
+            Some(ProviderInfo {
+                local: provider.is_local(),
+                has_key: provider.key.is_some(),
+                url: provider.url,
+                key_env: own.key_env,
+                known: sonar_settings::KNOWN_PROVIDERS
+                    .iter()
+                    .any(|(known, ..)| *known == id),
+                id,
+            })
+        })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -159,6 +196,7 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
         problem: Settings::load(path).err(),
         kinds: kinds(),
         models: models(&launcher.paths().models),
+        providers: providers(&launcher.current_settings()),
     }
 }
 
@@ -223,6 +261,17 @@ pub async fn rates_update(launcher: State<'_, Launcher>) -> Result<i64, String> 
     })
     .await
     .map_err(|err| err.to_string())?
+}
+
+/// Keeps a provider's API key in the keychain; an empty key removes it.
+#[tauri::command]
+pub fn provider_key_set(provider: String, key: String) -> Result<(), String> {
+    let key = key.trim();
+    if key.is_empty() {
+        sonar_models::keys::delete(&provider)
+    } else {
+        sonar_models::keys::set(&provider, key)
+    }
 }
 
 #[tauri::command]

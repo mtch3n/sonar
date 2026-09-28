@@ -11,6 +11,7 @@ use std::{
 
 use sonar_core::{Embedder, Index, Paths};
 use sonar_models::Load;
+use sonar_settings::Settings;
 
 /// The model the search bar embeds queries with, when searching by meaning is on
 /// and its model is ready.
@@ -34,7 +35,7 @@ impl Meaning {
     /// keeps `query` holding the same model for the search bar.
     pub fn start(
         paths: Paths,
-        settings: impl Fn() -> sonar_settings::Meaning + Send + 'static,
+        settings: impl Fn() -> Settings + Send + 'static,
         query: QueryModel,
         on_status: impl Fn(Status) + Send + 'static,
     ) -> Meaning {
@@ -47,7 +48,8 @@ impl Meaning {
             let mut model: Option<Box<dyn Embedder>> = None;
             while woken.recv().is_ok() {
                 while woken.try_recv().is_ok() {}
-                let wanted = settings();
+                let now = settings();
+                let wanted = &now.meaning;
                 if !wanted.enabled {
                     model = None;
                     *lock(&query) = None;
@@ -57,13 +59,13 @@ impl Meaning {
                 if model.as_ref().is_none_or(|m| m.id() != wanted.model) {
                     model = None;
                     *lock(&query) = None;
-                    match load(&paths, &wanted.model, &on_status) {
+                    match load(&paths, &now, &on_status) {
                         Ok((background, for_queries)) => {
                             model = Some(background);
                             *lock(&query) = Some(for_queries);
                         }
                         Err(err) => {
-                            on_status(Status::Failed(format!("{err:#}")));
+                            on_status(Status::Failed(err));
                             continue;
                         }
                     }
@@ -82,13 +84,14 @@ impl Meaning {
                     on_status(Status::Embedding { done: 0, total });
                 }
                 let id = model.id().to_owned();
-                let embedded = index.embed(model.as_mut(), &mut |stats| {
+                let private = now.private_folders(&paths.home);
+                let embedded = index.embed(model.as_mut(), &private, &mut |stats| {
                     on_status(Status::Embedding {
                         done: stats.names + stats.files,
                         total,
                     });
                     // A change of model or turning it off stops this round.
-                    let now = settings();
+                    let now = settings().meaning;
                     now.enabled && now.model == id
                 });
                 on_status(match embedded {
@@ -106,31 +109,31 @@ impl Meaning {
     }
 }
 
+type Model = Box<dyn Embedder>;
+
 /// Two copies of the model: one for embedding in the background, and one the
 /// search bar can use while the other is busy.
 fn load(
     paths: &Paths,
-    id: &str,
+    settings: &Settings,
     on_status: &impl Fn(Status),
-) -> anyhow::Result<(Box<dyn Embedder>, Box<dyn Embedder>)> {
-    if !sonar_models::is_downloaded(id, &paths.models)
-        && let Some(info) = sonar_models::info(id)
+) -> Result<(Model, Model), String> {
+    if !settings.meaning_ready(&paths.models)
+        && let Some(info) = sonar_models::info(&settings.meaning.model)
     {
         on_status(Status::Downloading {
             name: info.name,
             mb: info.download_mb,
         });
     }
-    let background = sonar_models::load(
-        id,
+    let background = settings.meaning_model(
         &paths.models,
         Load {
             download: true,
             threads: sonar_models::threads_for_background(),
         },
     )?;
-    let for_queries = sonar_models::load(
-        id,
+    let for_queries = settings.meaning_model(
         &paths.models,
         Load {
             download: false,

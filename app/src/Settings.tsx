@@ -74,6 +74,11 @@ export default function Settings() {
     });
   }, []);
 
+  /** Reads what Settings shows about this computer again, keeping the form as it is. */
+  function reloadEditor() {
+    invoke<Editor>("settings_get").then(setEditor);
+  }
+
   useEffect(() => {
     if (saved && editor) return applyLook(saved.appearance.theme, accentColor(saved.appearance.accent, editor));
   }, [saved, editor]);
@@ -238,14 +243,45 @@ export default function Settings() {
                 onCheckedChange={(enabled) => change({ ...draft, meaning: { ...draft.meaning, enabled } })}
               />
             </Row>
-            <Row label="Model" hint={modelHint(editor.models.find((m) => m.id === draft.meaning.model))}>
-              <Choice
-                label="Model"
-                value={draft.meaning.model}
-                items={editor.models.map((m) => ({ value: m.id, label: m.name }))}
-                onChange={(model) => change({ ...draft, meaning: { ...draft.meaning, model } })}
+            <ModelField
+              value={draft.meaning.model}
+              models={editor.models}
+              onChange={(model) => change({ ...draft, meaning: { ...draft.meaning, model } })}
+            />
+            <PrivateFolders
+              folders={draft.private}
+              onChange={(folders) => change({ ...draft, private: folders })}
+            />
+          </Group>
+
+          <Group
+            title="Providers"
+            note="Services with an OpenAI-compatible API, for models that don't run inside Sonar. Keys are kept in the system keychain, never in settings.toml."
+          >
+            {editor.providers.map((provider) => (
+              <ProviderRow
+                key={provider.id}
+                provider={provider}
+                url={draft.providers[provider.id]?.url || provider.url}
+                onUrl={
+                  provider.known
+                    ? undefined
+                    : (url) =>
+                        change({
+                          ...draft,
+                          providers: { ...draft.providers, [provider.id]: { ...draft.providers[provider.id], url } },
+                        })
+                }
+                onKeySaved={reloadEditor}
+                onStatus={setStatus}
               />
-            </Row>
+            ))}
+            <AddProvider
+              taken={editor.providers.map((p) => p.id)}
+              onAdd={(id, url) =>
+                change({ ...draft, providers: { ...draft.providers, [id]: { url, key_env: null } } })
+              }
+            />
           </Group>
 
           <Group title="Files">
@@ -335,6 +371,207 @@ export default function Settings() {
         </Button>
       </footer>
     </div>
+  );
+}
+
+/** The value that stands for a provider's model in the model list. */
+const PROVIDER_MODEL = "\u0000provider";
+
+/** Picks a model Sonar runs, or one of a provider's, typed as provider:model. */
+function ModelField({
+  value,
+  models,
+  onChange,
+}: {
+  value: string;
+  models: Editor["models"];
+  onChange: (model: string) => void;
+}) {
+  const own = models.find((m) => m.id === value);
+  const [typing, setTyping] = useState(!own);
+  return (
+    <Row
+      label="Model"
+      hint={own ? modelHint(own) : "Written as provider:model, like openai:text-embedding-3-small or ollama:nomic-embed-text"}
+    >
+      <span className="flex flex-col items-end gap-1.5">
+        <Choice
+          label="Model"
+          value={typing ? PROVIDER_MODEL : value}
+          items={[
+            ...models.map((m) => ({ value: m.id, label: m.name })),
+            { value: PROVIDER_MODEL, label: "A provider's model…" },
+          ]}
+          onChange={(picked) => {
+            setTyping(picked === PROVIDER_MODEL);
+            if (picked !== PROVIDER_MODEL) onChange(picked);
+          }}
+        />
+        {typing && (
+          <Input
+            className="w-52"
+            value={own ? "" : value}
+            placeholder="openai:text-embedding-3-small"
+            onChange={(e) => onChange(e.target.value.trim())}
+            aria-label="Provider model"
+            spellCheck={false}
+            autoFocus
+          />
+        )}
+      </span>
+    </Row>
+  );
+}
+
+/** Folders whose files never go to a model that isn't on this computer. */
+function PrivateFolders({ folders, onChange }: { folders: string[]; onChange: (folders: string[]) => void }) {
+  const [adding, setAdding] = useState("");
+  const add = () => {
+    const folder = adding.trim();
+    if (!folder || folders.includes(folder)) return;
+    onChange([...folders, folder]);
+    setAdding("");
+  };
+  return (
+    <>
+      {folders.map((folder) => (
+        <Row key={folder} label={folder} hint="Private: never sent to a model elsewhere">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Stop keeping ${folder} private`}
+            onClick={() => onChange(folders.filter((f) => f !== folder))}
+          >
+            <X />
+          </Button>
+        </Row>
+      ))}
+      <Item size="sm">
+        <ItemContent>
+          <Input
+            value={adding}
+            placeholder="A folder to keep private, like ~/Documents/private"
+            onChange={(e) => setAdding(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()}
+            aria-label="Private folder to add"
+            spellCheck={false}
+          />
+        </ItemContent>
+        <ItemActions>
+          <Button variant="outline" onClick={add} disabled={!adding.trim()}>
+            Keep private
+          </Button>
+        </ItemActions>
+      </Item>
+    </>
+  );
+}
+
+function ProviderRow({
+  provider,
+  url,
+  onUrl,
+  onKeySaved,
+  onStatus,
+}: {
+  provider: Editor["providers"][number];
+  url: string;
+  onUrl?: (url: string) => void;
+  onKeySaved: () => void;
+  onStatus: (status: { text: string; error: boolean }) => void;
+}) {
+  const [key, setKey] = useState("");
+  async function saveKey(value: string) {
+    try {
+      await invoke("provider_key_set", { provider: provider.id, key: value });
+      setKey("");
+      onKeySaved();
+      onStatus({ text: value ? `Kept ${provider.id}'s key in the keychain` : `Removed ${provider.id}'s key`, error: false });
+    } catch (err) {
+      onStatus({ text: String(err), error: true });
+    }
+  }
+  const where = provider.local ? "On this computer" : "Elsewhere: what it's sent leaves this computer";
+  return (
+    <Item size="sm" className="flex-nowrap">
+      <ItemContent className="min-w-0">
+        <ItemTitle>{provider.id}</ItemTitle>
+        {onUrl ? (
+          <Input
+            className="mt-1"
+            value={url}
+            onChange={(e) => onUrl(e.target.value.trim())}
+            aria-label={`${provider.id} address`}
+            spellCheck={false}
+          />
+        ) : (
+          <ItemDescription className="select-text">{url}</ItemDescription>
+        )}
+        <ItemDescription>{where}</ItemDescription>
+      </ItemContent>
+      <ItemActions>
+        <Input
+          className="w-40"
+          type="password"
+          value={key}
+          placeholder={provider.hasKey ? "Key saved" : provider.keyEnv ? `Key, or ${provider.keyEnv}` : "Key, if it needs one"}
+          onChange={(e) => setKey(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && key.trim() && saveKey(key)}
+          aria-label={`${provider.id} API key`}
+          spellCheck={false}
+        />
+        {key.trim() ? (
+          <Button variant="outline" onClick={() => saveKey(key)}>
+            Save key
+          </Button>
+        ) : (
+          provider.hasKey && (
+            <Button variant="ghost" size="icon-sm" aria-label={`Remove ${provider.id}'s key`} onClick={() => saveKey("")}>
+              <X />
+            </Button>
+          )
+        )}
+      </ItemActions>
+    </Item>
+  );
+}
+
+function AddProvider({ taken, onAdd }: { taken: string[]; onAdd: (id: string, url: string) => void }) {
+  const [id, setId] = useState("");
+  const [url, setUrl] = useState("");
+  const valid = /^[a-z0-9_-]+$/.test(id) && !taken.includes(id) && /^https?:\/\//.test(url);
+  const add = () => {
+    if (!valid) return;
+    onAdd(id, url);
+    setId("");
+    setUrl("");
+  };
+  return (
+    <Item size="sm">
+      <ItemContent className="flex-row gap-2">
+        <Input
+          className="w-32"
+          value={id}
+          placeholder="name"
+          onChange={(e) => setId(e.target.value.trim().toLowerCase())}
+          aria-label="Provider to add"
+          spellCheck={false}
+        />
+        <Input
+          value={url}
+          placeholder="https://llm.example.com/v1"
+          onChange={(e) => setUrl(e.target.value.trim())}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          aria-label="Provider address"
+          spellCheck={false}
+        />
+      </ItemContent>
+      <ItemActions>
+        <Button variant="outline" onClick={add} disabled={!valid}>
+          Add
+        </Button>
+      </ItemActions>
+    </Item>
   );
 }
 

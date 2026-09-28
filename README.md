@@ -66,7 +66,15 @@ The model runs on your computer and is downloaded from Hugging Face the first ti
 | `bge-small-en` | English | 67 MB | about 30 passages a second, better with whole sentences |
 | `multilingual-e5-small` | about 100 | 470 MB | about 30 passages a second, better with whole sentences |
 
+`meaning.model` can also name a model behind an OpenAI-compatible API as `provider:model`, like `openai:text-embedding-3-small`, `ollama:nomic-embed-text` or `lmstudio:text-embedding-bge-m3`; see [Providers](#providers).
+
 The first two are [Model2Vec](https://github.com/MinishLab/model2vec) static models, which read about 14,000 passages from a typical home folder in five seconds; the others are transformers run with ONNX Runtime, which take a few minutes for the same and understand sentences better. Changing the model learns everything again with the new one.
+
+### Providers
+
+Models that don't run inside Sonar are reached through a provider: anything with an OpenAI-compatible API. Sonar knows `openai`, `openrouter`, `ollama` (`http://localhost:11434/v1`) and `lmstudio` (`http://localhost:1234/v1`); add others under Providers in Settings, or as `[providers.<name>]` with a `url` in the settings file. API keys are typed in Settings and kept in the system keychain (Secret Service on Linux, Keychain on macOS, Credential Manager on Windows), never in the settings file; a key in the variable a provider's `key_env` names, like `OPENAI_API_KEY`, is used first.
+
+A provider on this computer, like Ollama, keeps everything here. One elsewhere is sent the text it works on, so Settings says which is which, and the folders listed under `private`, like `~/Documents/private`, are never sent to one.
 
 ## Calculator
 
@@ -132,6 +140,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 
 | Setting | Default | Meaning |
 |---|---|---|
+| `private` | `[]` | folders whose files are never sent to a model that isn't on this computer, like `["~/Documents/private"]` |
 | `shortcut` | `alt+space`, `ctrl+alt+space` on Linux | keys that open the search bar, like `ctrl+shift+k` |
 | `marketplaces` | `["mtch3n/sonar"]` | GitHub repositories whose plugins you can install |
 | `appearance.theme` | `system` | `system`, `light` or `dark` |
@@ -146,7 +155,9 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `index.text_kb` | `64` | how much of each file's text is searched, 1 to 16384; changing it reads every file again |
 | `index.kinds` | | how much of each kind of file is indexed; see [What gets indexed](#what-gets-indexed) |
 | `meaning.enabled` | `false` | search by meaning too; see [Search by meaning](#search-by-meaning) |
-| `meaning.model` | `multilingual` | the model that does it: `multilingual`, `english`, `bge-small-en` or `multilingual-e5-small` |
+| `meaning.model` | `multilingual` | the model that does it: `multilingual`, `english`, `bge-small-en`, `multilingual-e5-small`, or a provider's as `provider:model` |
+| `providers.<name>.url` | | an OpenAI-compatible API, like `https://llm.example.com/v1`; `openai`, `openrouter`, `ollama` and `lmstudio` are known |
+| `providers.<name>.key_env` | | a variable holding its API key, read before the keychain |
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
 | `plugins.calculator.currency` | your region's | the currency amounts like `100 usd` are shown in, like `"EUR"` |

@@ -36,6 +36,7 @@ memmap2 = "0.9.11"
 iso_country = "0.1.4"
 iso_currency = { version = "0.7.1", features = ["iterator"] }
 jiff = "0.2.37"
+keyring = "4.2.0"
 notify = "8.2.0"
 pdf-extract = "0.12.1"
 quick-xml = "0.41.0"

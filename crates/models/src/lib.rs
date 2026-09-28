@@ -4,6 +4,7 @@
 //! folder Sonar owns, and run on this computer from then on.
 
 mod onnx;
+pub mod remote;
 mod static_model;
 
 use std::path::Path;
@@ -12,6 +13,7 @@ use anyhow::{Result, bail};
 use sonar_core::Embedder;
 
 pub use onnx::threads_for_background;
+pub use remote::{Provider, keys};
 
 /// A model Sonar can search with.
 pub struct ModelInfo {
@@ -148,4 +150,10 @@ pub fn load(id: &str, dir: &Path, load: Load) -> Result<Box<dyn Embedder>> {
             load.threads,
         )?),
     })
+}
+
+/// An embedding model behind `provider`'s API, like OpenAI's
+/// `text-embedding-3-small` or a model served by Ollama.
+pub fn remote(provider: Provider, model: &str) -> Box<dyn Embedder> {
+    Box::new(remote::RemoteModel::new(provider, model))
 }

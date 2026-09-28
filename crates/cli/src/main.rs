@@ -132,16 +132,16 @@ fn run_index(index: &mut Index, paths: &Paths) -> Result<()> {
         tilde(&paths.rules.to_string_lossy(), &paths.home)
     );
     if settings.meaning.enabled {
-        embed(index, paths, &settings.meaning.model)?;
+        embed(index, paths, &settings)?;
     }
     Ok(())
 }
 
 /// Embeds what the scan found for searching by meaning, downloading the model the
 /// first time.
-fn embed(index: &mut Index, paths: &Paths, model: &str) -> Result<()> {
-    if !sonar_models::is_downloaded(model, &paths.models)
-        && let Some(info) = sonar_models::info(model)
+fn embed(index: &mut Index, paths: &Paths, settings: &Settings) -> Result<()> {
+    if !settings.meaning_ready(&paths.models)
+        && let Some(info) = sonar_models::info(&settings.meaning.model)
     {
         println!(
             "Downloading the {} model ({} MB)…",
@@ -152,11 +152,14 @@ fn embed(index: &mut Index, paths: &Paths, model: &str) -> Result<()> {
         download: true,
         threads: std::thread::available_parallelism().map_or(4, |n| n.get()),
     };
-    let mut embedder = sonar_models::load(model, &paths.models, load)?;
+    let mut embedder = settings
+        .meaning_model(&paths.models, load)
+        .map_err(anyhow::Error::msg)?;
     let (names, files) = index.pending_meaning(embedder.id())?;
     let started = Instant::now();
     let tty = std::io::stderr().is_terminal();
-    let stats = index.embed(embedder.as_mut(), &mut |stats| {
+    let private = settings.private_folders(&paths.home);
+    let stats = index.embed(embedder.as_mut(), &private, &mut |stats| {
         if tty {
             eprint!(
                 "\rLearning meaning: {} of {}",
@@ -184,14 +187,15 @@ fn run_search(index: &mut Index, paths: &Paths, input: &str) -> Result<()> {
         bail!("the index is empty; run `sonar index` first");
     }
     let query = Query::parse(input, &paths.home)?;
-    let meaning = Settings::load(&paths.settings).unwrap_or_default().meaning;
+    let settings = Settings::load(&paths.settings).unwrap_or_default();
     let load = Load {
         download: false,
         threads: 2,
     };
-    let embedder = meaning
+    let embedder = settings
+        .meaning
         .enabled
-        .then(|| sonar_models::load(&meaning.model, &paths.models, load).ok())
+        .then(|| settings.meaning_model(&paths.models, load).ok())
         .flatten();
     let hits = match embedder {
         Some(mut embedder) => index.search_with(&query, embedder.as_mut())?,
