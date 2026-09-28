@@ -6,6 +6,7 @@ use std::{
 use crate::{
     Kind,
     dupes::{DEFAULT_DISTANCE, Wanted},
+    tags,
 };
 
 pub const DEFAULT_LIMIT: usize = 20;
@@ -27,6 +28,8 @@ pub struct Query {
     pub dupes: Option<Wanted>,
     /// `similar:`: files like the one at this path.
     pub similar: Option<String>,
+    /// `tag:`: tags every file found has; `tag:a,b` is one of either.
+    pub tags: Vec<Vec<String>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -66,9 +69,10 @@ enum Key {
     Limit,
     Dupes,
     Similar,
+    Tag,
 }
 
-const KEYS: [(&str, Key); 11] = [
+const KEYS: [(&str, Key); 13] = [
     ("kind", Key::Kind),
     ("ext", Key::Ext),
     ("in", Key::In),
@@ -80,6 +84,8 @@ const KEYS: [(&str, Key); 11] = [
     ("limit", Key::Limit),
     ("dupes", Key::Dupes),
     ("similar", Key::Similar),
+    ("tag", Key::Tag),
+    ("label", Key::Tag),
 ];
 
 impl Query {
@@ -101,6 +107,7 @@ impl Query {
             limit: None,
             dupes: None,
             similar: None,
+            tags: Vec::new(),
         };
         for token in tokens(input) {
             if let Some(word) = token.strip_prefix('-').filter(|w| !w.is_empty()) {
@@ -160,6 +167,7 @@ impl Query {
                 (_, amount) => self.size_above = Some(size(amount)?),
             },
             Key::Dupes => {}
+            Key::Tag => self.tags.push(list(&value).map(tags::clean).collect()),
             Key::Similar => {
                 self.similar = Some(match within(&value, home) {
                     Within::Path(path) => path,

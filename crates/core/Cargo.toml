@@ -25,3 +25,6 @@ zip.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 tempfile.workspace = true
+
+[target."cfg(unix)".dependencies]
+xattr.workspace = true

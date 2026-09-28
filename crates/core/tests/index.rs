@@ -798,3 +798,101 @@ fn duplicates_and_look_alikes() {
     assert_eq!(copies[0].0, "report (1).pdf");
     assert!(Query::parse("dupes:everything", &home).is_err());
 }
+
+#[test]
+fn tags_from_rules_hands_and_plugins() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(&home, "Pictures/Screenshots/shot.png", "a");
+    write(&home, "app/Cargo.toml", "");
+    write(&home, "Inbox/receipt-ikea.txt", "desk 1249");
+    write(&home, "Pictures/IMG_1.jpg", "lighthouse\n");
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    let mut options = ScanOptions::default();
+    options.levels.set(Kind::Image, Level::Text);
+    index.scan(&home, &rules, &options).unwrap();
+    let tagged = |index: &Index, input: &str| {
+        let mut found = find(index, &home, input);
+        found.sort();
+        found
+    };
+    assert_eq!(tagged(&index, "tag:screenshot"), ["shot.png"]);
+    assert_eq!(tagged(&index, "tag:rust"), ["app"]);
+
+    // Tags given by hand follow the content when the file moves.
+    let receipt = home.join("Inbox/receipt-ikea.txt");
+    index.tag(&receipt, "Receipt", true).unwrap();
+    assert_eq!(index.tags(&receipt).unwrap(), ["receipt"]);
+    fs::create_dir_all(home.join("Archive")).unwrap();
+    fs::rename(&receipt, home.join("Archive/receipt-ikea.txt")).unwrap();
+    index.scan(&home, &rules, &options).unwrap();
+    assert_eq!(tagged(&index, "label:receipt"), ["receipt-ikea.txt"]);
+
+    // Plugin tags, and taking one off by hand.
+    let frames = tmp.path().join("frames");
+    let process = ProcessOptions {
+        root: &home,
+        frames: &frames,
+        private: &[],
+    };
+    let mut looker = Looker {
+        version: "1",
+        seen: Vec::new(),
+        frames: 0,
+    };
+    index.process(&mut looker, &process, &mut |_| true).unwrap();
+    let photo = home.join("Pictures/IMG_1.jpg");
+    assert_eq!(index.tags(&photo).unwrap(), ["lighthouse", "photo"]);
+    index.tag(&photo, "photo", false).unwrap();
+    assert_eq!(index.tags(&photo).unwrap(), ["lighthouse"]);
+    assert_eq!(
+        tagged(&index, "tag:photo"),
+        ["shot.png"],
+        "the photo's tag is off"
+    );
+    assert_eq!(
+        tagged(&index, "tag:photo,lighthouse"),
+        ["IMG_1.jpg", "shot.png"]
+    );
+    assert_eq!(index.manual_tags().unwrap(), [("receipt".to_owned(), 1)]);
+
+    let hits = index
+        .search(&Query::parse("tag:lighthouse", &home).unwrap())
+        .unwrap();
+    assert_eq!(hits[0].tags, ["lighthouse"]);
+}
+
+#[test]
+fn labels_by_meaning_and_by_example() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(&home, "a.md", "money paid for the invoice");
+    write(&home, "b.md", "photos of the beach");
+    write(&home, "c.md", "rsync backup copy");
+    write(&home, "d.md", "backup and sync of files");
+    write(&home, "e.md", "copy with rsync nightly");
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules, &ScanOptions::default()).unwrap();
+    let mut model = Topics { calls: 0 };
+    index.embed(&mut model, &[], &mut |_| true).unwrap();
+
+    let labels = [(
+        "receipt".to_owned(),
+        "proof of payment, money paid".to_owned(),
+    )]
+    .into();
+    let stats = index.learn_labels(&mut model, &labels).unwrap();
+    assert_eq!(stats.by_meaning, 1, "{stats:?}");
+    assert_eq!(find(&index, &home, "tag:receipt"), ["a.md"]);
+
+    // Two hand-tagged backups teach the label to the third.
+    index.tag(&home.join("c.md"), "backups", true).unwrap();
+    index.tag(&home.join("d.md"), "backups", true).unwrap();
+    let stats = index.learn_labels(&mut model, &labels).unwrap();
+    assert!(stats.by_examples >= 3, "{stats:?}");
+    let mut found = find(&index, &home, "tag:backups");
+    found.sort();
+    assert_eq!(found, ["c.md", "d.md", "e.md"]);
+}

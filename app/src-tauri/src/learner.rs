@@ -139,6 +139,12 @@ impl Learner {
                     on_status(Status::Failed(err));
                     continue;
                 }
+                if let Some(model) = model.as_mut()
+                    && let Err(err) = index.learn_labels(model.as_mut(), &now.labels())
+                {
+                    on_status(Status::Failed(format!("labels: {err:#}")));
+                    continue;
+                }
                 on_status(Status::Idle);
             }
         });

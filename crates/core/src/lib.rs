@@ -11,6 +11,7 @@ mod query;
 mod rules;
 mod scan;
 mod search;
+mod tags;
 mod text;
 mod words;
 
@@ -28,6 +29,7 @@ pub use query::{DEFAULT_LIMIT, ParseError, Query, Term, Within};
 pub use rules::Rules;
 pub use scan::{ScanOptions, ScanStats};
 pub use search::Hit;
+pub use tags::{LabelStats, clean as clean_tag};
 pub use text::DEFAULT_TEXT_LIMIT;
 
 #[derive(Clone)]
@@ -157,6 +159,39 @@ impl Index {
     pub fn duplicates(&self, query: &Query, wanted: Wanted) -> Result<Vec<Group>> {
         let (filters, args) = search::filters(query);
         dupes::groups(&self.conn, wanted, &filters, &args)
+    }
+
+    /// Tags the file at `path` by hand with `tag`, or with `on` false takes it off,
+    /// whichever source it came from. It sticks to the file's content, so it follows
+    /// the file when it's moved or copied.
+    pub fn tag(&mut self, path: &Path, tag: &str, on: bool) -> Result<()> {
+        let path = path.to_str().context("the path isn't UTF-8")?;
+        tags::set(&self.conn, path, tag, on)
+    }
+
+    /// The tags of the file at `path`, from every source.
+    pub fn tags(&self, path: &Path) -> Result<Vec<String>> {
+        let path = path.to_str().context("the path isn't UTF-8")?;
+        let id: i64 = self
+            .conn
+            .query_row("SELECT id FROM files WHERE path = ?1", [path], |r| r.get(0))
+            .with_context(|| format!("{path} isn't in the index"))?;
+        tags::of_file(&self.conn, id)
+    }
+
+    /// Tags given by hand, and how many files have each, most first.
+    pub fn manual_tags(&self) -> Result<Vec<(String, u64)>> {
+        tags::manual(&self.conn)
+    }
+
+    /// Gives the content `embedder` has vectors of the labels, by name, whose
+    /// descriptions it's close to, and those whose hand-tagged files it's like.
+    pub fn learn_labels(
+        &mut self,
+        embedder: &mut dyn Embedder,
+        labels: &std::collections::BTreeMap<String, String>,
+    ) -> Result<LabelStats> {
+        tags::learn(&mut self.conn, embedder, labels)
     }
 
     /// How many names and files model `model` has yet to embed.

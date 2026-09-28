@@ -334,7 +334,7 @@ fn to_blob(vector: &[f32]) -> Vec<u8> {
     vector.iter().flat_map(|x| x.to_le_bytes()).collect()
 }
 
-fn from_blob(blob: &[u8]) -> impl Iterator<Item = f32> + '_ {
+pub(crate) fn from_blob(blob: &[u8]) -> impl Iterator<Item = f32> + '_ {
     blob.chunks_exact(4)
         .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }

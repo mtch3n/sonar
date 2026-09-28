@@ -317,6 +317,32 @@ def check_actions(driver: WebDriver):
     search(driver, "rsync", lambda r: r["title"] == "backupPhotos.sh", "the script, read again")
     print("ok  Ctrl + K lists actions, and Read again reads a file again")
 
+    # Tags… fills the bar with the file's tags; typing one and Enter adds it.
+    search(driver, "rsync", lambda r: r["title"] == "backupPhotos.sh", "the script")
+    driver.keys("input[aria-label='Search']", f"{CONTROL}k{NULL}")
+    titles = wait_for(lambda: [row["title"] for row in driver.run(ROWS)] if "Tags…" in [
+        row["title"] for row in driver.run(ROWS)] else None, 10, "Tags… in the actions")
+    for _ in range(titles.index("Tags…")):
+        driver.keys("input[aria-label='Search']", "\ue015")
+    driver.keys("input[aria-label='Search']", "\ue007")
+    wait_for(
+        lambda: driver.run("return document.querySelector(\"input[aria-label='Search']\").value").startswith("tags "),
+        10,
+        "the tags view",
+    )
+    driver.keys("input[aria-label='Search']", "nightly-backup")
+    try:
+        wait_for(lambda: any(r["title"] == "Tag it #nightly-backup" for r in driver.run(ROWS)), 10, "the tag to add")
+    except AssertionError:
+        shown = driver.run("return document.querySelector('main')?.innerText")
+        value = driver.run("return document.querySelector(\"input[aria-label='Search']\").value")
+        raise AssertionError(f"the bar has {value!r} and shows {shown!r}") from None
+    driver.keys("input[aria-label='Search']", "\ue007")
+    wait_for(lambda: any(r["title"] == "#nightly-backup" for r in driver.run(ROWS)), 10, "the tag on the file")
+    row = search(driver, "tag:nightly-backup", lambda r: r["title"] == "backupPhotos.sh", "the tagged script")
+    assert row["subtitle"].endswith("#nightly-backup"), row
+    print("ok  Tags… adds a tag, and tag: finds the file")
+
 
 # The Settings window is built from shadcn controls: a select is a button that opens
 # a list of options, and a switch is a button with aria-checked.

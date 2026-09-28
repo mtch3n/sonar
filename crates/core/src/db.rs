@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA: &str = "
 CREATE TABLE files (
@@ -32,14 +32,22 @@ CREATE VIRTUAL TABLE files_fts USING fts5 (
     content = '', contentless_delete = 1,
     tokenize = 'unicode61 remove_diacritics 2'
 );
+-- Tags a file has by its place, name and kind, and the ones it carries itself.
+CREATE TABLE file_tags (
+    file_id INTEGER NOT NULL,
+    tag TEXT NOT NULL,
+    PRIMARY KEY (file_id, tag)
+) WITHOUT ROWID;
+CREATE INDEX file_tags_tag ON file_tags (tag);
 -- How much of each file's text the last scan kept, so a new limit re-reads them.
 CREATE TABLE text_limit (bytes INTEGER NOT NULL);
 CREATE TRIGGER files_deleted AFTER DELETE ON files BEGIN
     DELETE FROM files_fts WHERE rowid = old.id;
+    DELETE FROM file_tags WHERE file_id = old.id;
 END;
 ";
 
-const CACHE_VERSION: i64 = 5;
+const CACHE_VERSION: i64 = 6;
 
 /// What Sonar learned from each file's content, by its hash. It's kept in a file of
 /// its own, so it outlives the index when that is rebuilt, and entries no file has
@@ -94,6 +102,16 @@ CREATE TABLE cache.outputs (
     unused_since INTEGER,
     PRIMARY KEY (hash, processor)
 ) WITHOUT ROWID;
+-- Tags on content: from processors, labels found by meaning, and ones given or
+-- taken off by hand, which follow the content wherever it goes.
+CREATE TABLE cache.tags (
+    hash BLOB NOT NULL,
+    tag TEXT NOT NULL,
+    source TEXT NOT NULL,
+    score REAL NOT NULL,
+    PRIMARY KEY (hash, tag, source)
+) WITHOUT ROWID;
+CREATE INDEX cache.tags_tag ON tags (tag);
 -- The processors' text and tags for a hash, searched with its own text; version
 -- counts changes, so it's embedded again.
 CREATE TABLE cache.extras (
@@ -140,6 +158,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
         tx.execute_batch(
             "DROP TRIGGER IF EXISTS main.files_deleted;
              DROP TABLE IF EXISTS main.text_limit;
+             DROP TABLE IF EXISTS main.file_tags;
              DROP TABLE IF EXISTS main.texts;
              DROP TABLE IF EXISTS main.files_fts;
              DROP TABLE IF EXISTS main.files;",
@@ -153,6 +172,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
         let tx = conn.transaction()?;
         tx.execute_batch(
             "DROP VIEW IF EXISTS cache.full_texts;
+             DROP TABLE IF EXISTS cache.tags;
              DROP TABLE IF EXISTS cache.outputs;
              DROP TABLE IF EXISTS cache.extras;
              DROP TABLE IF EXISTS cache.contents;

@@ -64,6 +64,8 @@ pub struct Editor {
     models: Vec<ModelChoice>,
     /// Services with an OpenAI-compatible API.
     providers: Vec<ProviderInfo>,
+    /// The labels files get while the settings have none of their own.
+    default_labels: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Serialize)]
@@ -210,6 +212,7 @@ pub async fn settings_get(launcher: State<'_, Launcher>) -> Result<Editor, Strin
         kinds: kinds(),
         models: models(&launcher.paths().models),
         providers: providers(&launcher.current_settings()),
+        default_labels: Settings::default().labels(),
     })
 }
 

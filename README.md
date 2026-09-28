@@ -48,6 +48,7 @@ Words of three letters or more also match the text inside files outside code pro
 | `after:` `before:` | `after:2026-01-01` | changed on or after, or before, a date |
 | `size:` | `size:>100mb`, `size:<10kb` | bigger or smaller than |
 | `limit:` | `limit:50` | number of results, 20 by default |
+| `tag:` `label:` | `tag:receipt`, `tag:receipt,invoice` | files with a tag, or with either; see [Tags](#tags) |
 | `dupes:` | `dupes:`, `dupes:same`, `dupes:looks<12`, `dupes:names` | files that are copies of each other, or look like it; see [Duplicates](#duplicates) |
 | `similar:` | `similar:~/Pictures/beach.jpg` | files that look like this one, or are copies of it |
 | `-word` | `-draft` | leave out matches for a word |
@@ -90,6 +91,16 @@ Both remember what they said by each file's content, so a moved or copied file i
 - Names that are another's with a copy's mark, like `report (1).pdf` or `notes copy.txt`, when their contents differ.
 
 Filters narrow it down, like `dupes: kind:video` or `dupes:same in:~/Downloads`. Find similar in a file's actions (Ctrl + K) lists the files that look like it. Sonar never removes anything; it only shows you the copies.
+
+### Tags
+
+Files get tags from several places, and `tag:receipt` finds them all, as does `label:receipt`. Each result shows its tags.
+
+- Rules: screenshots, by their name or folder, and projects by their language, like `rust` for a folder with `Cargo.toml`.
+- Tags a file carries itself: on Linux, the ones KDE's Dolphin and other file managers keep in `user.xdg.tags`.
+- Describe's tags for pictures and videos, and the labels it picks.
+- Labels, when searching by meaning is on: each file whose text is close to a label's meaning gets it, and so does each file that's like the ones you tagged with it by hand, once you've tagged two. Sonar's labels are receipt, invoice, bank-statement, contract, payslip, tax, id-document, ticket, medical, manual and screenshot; change them under Labels in Settings, or as `[labels]` with a line for each saying what it means. Labels found by meaning are a first guess, better with the precise models; the ones learned from your own tags get better the more you tag.
+- Your own: Tags… in a file's actions (Ctrl + K) lists its tags, Enter on one takes it off, and typing a new one and Enter adds it. `sonar tag <file> +receipt -draft` does the same on the command line. Your tags stay with the file's content, so they follow it when it's moved, renamed or copied, and outlast rebuilding the index; a tag you take off stays off, whatever else would put it back.
 
 ### Providers
 
@@ -178,6 +189,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `index.kinds` | | how much of each kind of file is indexed; see [What gets indexed](#what-gets-indexed) |
 | `meaning.enabled` | `false` | search by meaning too; see [Search by meaning](#search-by-meaning) |
 | `meaning.model` | `multilingual` | the model that does it: `multilingual`, `english`, `bge-small-en`, `multilingual-e5-small`, or a provider's as `provider:model` |
+| `labels.<name>` | Sonar's own | a label files can get, and a line saying what it means; with a `[labels]` table, only its labels are used |
 | `providers.<name>.url` | | an OpenAI-compatible API, like `https://llm.example.com/v1`; `openai`, `openrouter`, `ollama` and `lmstudio` are known |
 | `providers.<name>.key_env` | | a variable holding its API key, read before the keychain |
 | `updates.check` | `true` | look for new versions on GitHub |
@@ -221,6 +233,7 @@ The command-line tool updates itself with `sonar update`.
 sonar index
 sonar reindex ~/Documents/scans    # read and learn a file or folder again
 sonar dupes kind:video             # copies and look-alikes, and the space they take
+sonar tag scan.pdf +receipt -draft # add and take off tags
 sonar s invoice kind:pdf
 sonar s 'kind:image modified:<7d'
 sonar s --help
