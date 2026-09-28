@@ -57,7 +57,13 @@ export type Setting = { key: string; title: string; description: string | null }
 export type Settings = {
   shortcut: string;
   marketplaces: string[];
-  appearance: { theme: "system" | "light" | "dark"; accent: string; width: number; rows: number };
+  appearance: {
+    theme: "system" | "light" | "dark";
+    monitor: "active" | "main";
+    accent: string;
+    width: number;
+    rows: number;
+  };
   search: { limit: number };
   files: { editor: string; terminal: string };
   index: { rescan_minutes: number; text_kb: number; kinds: Record<string, string> };
