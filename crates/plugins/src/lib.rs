@@ -2,7 +2,8 @@
 //! external plugins that speak Sonar's JSON-lines protocol (see `docs/plugins.md`),
 //! the settings plugins declare, and installing plugins from GitHub marketplaces.
 
-mod calculator;
+pub mod calculator;
+pub mod currency;
 mod external;
 mod manifest;
 mod setting;
@@ -10,7 +11,7 @@ pub mod store;
 
 use serde::Deserialize;
 
-pub use calculator::calculate;
+pub use calculator::Calculator;
 pub use external::{External, Prepare};
 pub use manifest::{Manifest, check_keyword, discover};
 pub use setting::{Choice, Field, Setting, resolve};

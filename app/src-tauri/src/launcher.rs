@@ -15,7 +15,7 @@ use std::{
 use serde::Serialize;
 use sonar_core::{Hit, Index, Paths, Query};
 use sonar_plugins::{
-    Action, External, Item, Manifest,
+    Action, Calculator, External, Item, Manifest, calculator,
     store::{self, Found, Marketplace, Repo, Source},
     strip_keyword,
 };
@@ -25,14 +25,14 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::{sync::OnceCell, task::JoinSet};
 
 use crate::{
-    host,
+    host, rates,
     settings::{Settings, Theme},
     window,
 };
 
 /// Typing this and a space lists installed plugins and the marketplaces' plugins.
 const PLUGINS_KEYWORD: &str = "plugins";
-const CALCULATOR: &str = "calculator";
+const CALCULATOR: &str = calculator::ID;
 /// How long an external plugin may take to answer before it is restarted.
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
@@ -43,6 +43,7 @@ pub struct Launcher {
     session: RwLock<Arc<Session>>,
     results: Mutex<Results>,
     indexing: AtomicBool,
+    rates: rates::Shared,
     /// Problems with the settings, plugins or shortcut, shown when the bar opens.
     notices: Mutex<Vec<String>>,
 }
@@ -51,6 +52,8 @@ pub struct Launcher {
 /// the bar is open, so edits to a plugin apply the next time it opens.
 struct Session {
     calculator: Option<Option<String>>,
+    /// The currency the calculator converts money to when the query doesn't say.
+    home_currency: String,
     plugins: Vec<Plugin>,
     /// Plugins that are installed but turned off in the settings.
     disabled: Vec<Manifest>,
@@ -98,6 +101,8 @@ enum Command {
         name: String,
     },
     Add(Repo),
+    /// The calculator's answer as a bare number, like `3176.54` for `3,176.54 TWD`.
+    CopyNumber(String),
 }
 
 #[derive(Clone, Serialize)]
@@ -169,6 +174,7 @@ impl Launcher {
             session: RwLock::new(Arc::new(Session::empty())),
             results: Mutex::default(),
             indexing: AtomicBool::new(true),
+            rates: rates::Shared::default(),
             notices: Mutex::default(),
             paths,
         };
@@ -187,6 +193,18 @@ impl Launcher {
 
     pub fn current_settings(&self) -> Settings {
         read(&self.settings).clone()
+    }
+
+    /// Filled in and kept current by the rate keeper.
+    pub fn rates(&self) -> rates::Shared {
+        self.rates.clone()
+    }
+
+    fn calculator(&self, session: &Session) -> Calculator {
+        Calculator {
+            home: session.home_currency.clone(),
+            rates: read(&self.rates).clone(),
+        }
     }
 
     pub fn set_indexing(&self, indexing: bool) {
@@ -263,11 +281,13 @@ impl Launcher {
         {
             let rows = self.rows(
                 generation,
-                sonar_plugins::calculate(rest).map(calculator_draft),
+                self.calculator(&session)
+                    .calculate(rest)
+                    .map(calculator_draft),
             );
             let empty = rows
                 .is_empty()
-                .then(|| "Type a calculation, like 2^10 or 5 km to miles".to_owned());
+                .then(|| "Type a calculation, like 2^10, 5 km to miles or 100 usd".to_owned());
             send(vec![section(CALCULATOR, "Calculator", 0, rows, empty)]);
             return Ok(());
         }
@@ -290,7 +310,7 @@ impl Launcher {
             sections.push(section("keywords", "Plugins", 0, suggestions, None));
         }
         if session.calculator == Some(None)
-            && let Some(item) = sonar_plugins::calculate(query)
+            && let Some(item) = self.calculator(&session).calculate(query)
         {
             let rows = self.rows(generation, Some(calculator_draft(item)));
             sections.push(section(CALCULATOR, "Calculator", 10, rows, None));
@@ -515,6 +535,7 @@ impl Launcher {
         let settings_path = self.paths.settings.clone();
         match command {
             Command::Plugin { action, dir } => self.act(app, action, dir.as_deref()),
+            Command::CopyNumber(number) => self.act(app, Action::Copy(number), None),
             Command::Install {
                 id,
                 name,
@@ -592,6 +613,7 @@ impl Session {
     fn empty() -> Session {
         Session {
             calculator: None,
+            home_currency: "USD".to_owned(),
             plugins: Vec::new(),
             disabled: Vec::new(),
             catalog: OnceCell::new(),
@@ -600,6 +622,15 @@ impl Session {
 
     fn load(dir: &Path, settings: &Settings, notices: &mut Vec<String>) -> Session {
         let calculator = settings.plugin(CALCULATOR);
+        let (values, problems) =
+            sonar_plugins::resolve(&calculator::settings(), &calculator.values);
+        notices.extend(problems.into_iter().map(|problem| {
+            format!("Calculator: {problem}; fix it under [plugins.{CALCULATOR}] in settings.toml")
+        }));
+        let home_currency = values[calculator::CURRENCY]
+            .as_str()
+            .unwrap_or("USD")
+            .to_owned();
         let (manifests, problems) = sonar_plugins::discover(dir);
         notices.extend(problems);
         let mut plugins: Vec<Plugin> = Vec::new();
@@ -643,6 +674,7 @@ impl Session {
         }
         Session {
             calculator: calculator.enabled.then_some(calculator.keyword),
+            home_currency,
             plugins,
             disabled,
             catalog: OnceCell::new(),
@@ -702,6 +734,7 @@ impl Command {
             Command::Install { update: true, .. } => "Update",
             Command::Uninstall { .. } => "Remove",
             Command::Add(_) => "Add",
+            Command::CopyNumber(_) => "Copy number",
         }
     }
 }
@@ -756,7 +789,7 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
 fn calculator_draft(item: Item) -> Draft {
     Draft {
         title: item.title,
-        subtitle: None,
+        subtitle: item.subtitle,
         meta: None,
         icon: "calculator",
         image: None,
@@ -764,7 +797,10 @@ fn calculator_draft(item: Item) -> Draft {
             action: item.action,
             dir: None,
         },
-        alt: None,
+        alt: item.alt.map(|action| match action {
+            Action::Copy(number) => Command::CopyNumber(number),
+            action => Command::Plugin { action, dir: None },
+        }),
     }
 }
 

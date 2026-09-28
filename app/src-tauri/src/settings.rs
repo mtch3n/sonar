@@ -182,6 +182,14 @@ impl Settings {
         self.plugins.get(id).cloned().unwrap_or_default()
     }
 
+    /// Whether the calculator is on and may download exchange rates.
+    pub fn downloads_rates(&self) -> bool {
+        use sonar_plugins::calculator;
+        let own = self.plugin(calculator::ID);
+        let (values, _) = sonar_plugins::resolve(&calculator::settings(), &own.values);
+        own.enabled && values[calculator::DOWNLOAD_RATES] == true
+    }
+
     pub fn shortcut(&self) -> Shortcut {
         Shortcut::parse(&self.shortcut).expect("checked when loaded")
     }
@@ -459,7 +467,8 @@ check = true        # look for new versions of Sonar on GitHub
 # Turn a plugin off, give it another keyword, or change its own settings:
 #
 # [plugins.calculator]
-# enabled = false
+# currency = "EUR"  # what amounts like 100 usd are shown in
+# rates = false     # stop downloading exchange rates
 #
 # [plugins.web-search]
 # keyword = "w"
