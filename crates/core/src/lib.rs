@@ -18,6 +18,7 @@ pub use query::{DEFAULT_LIMIT, ParseError, Query, Term, Within};
 pub use rules::Rules;
 pub use scan::ScanStats;
 pub use search::Hit;
+pub use text::DEFAULT_TEXT_LIMIT;
 
 #[derive(Clone)]
 pub struct Paths {
@@ -62,8 +63,10 @@ impl Index {
         })
     }
 
-    pub fn scan(&mut self, root: &Path, rules: &Rules) -> Result<ScanStats> {
-        scan::scan(&mut self.conn, root, rules)
+    /// Indexes everything under `root`, keeping up to `text_limit` bytes of each
+    /// readable file's text.
+    pub fn scan(&mut self, root: &Path, rules: &Rules, text_limit: usize) -> Result<ScanStats> {
+        scan::scan(&mut self.conn, root, rules, text_limit)
     }
 
     /// The folders the last scan went into, for watching them for changes.

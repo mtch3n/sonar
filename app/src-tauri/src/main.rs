@@ -107,11 +107,9 @@ fn main() {
             #[cfg(target_os = "linux")]
             record_copies(&paths, &settings);
             let handle = app.handle().clone();
-            let rescan_every = move || {
-                let minutes = settings.read().map_or(5, |s| s.index.rescan_minutes);
-                std::time::Duration::from_secs(minutes * 60)
-            };
-            app.manage(Indexer::start(paths, rescan_every, move |status| {
+            let index_settings =
+                move || settings.read().map(|s| s.index.clone()).unwrap_or_default();
+            app.manage(Indexer::start(paths, index_settings, move |status| {
                 if let Some(launcher) = handle.try_state::<Launcher>() {
                     launcher.set_indexing(matches!(status, Status::Indexing));
                 }
@@ -196,7 +194,14 @@ fn reload(app: &AppHandle) {
     let Some(launcher) = app.try_state::<Launcher>() else {
         return;
     };
+    let text_kb = launcher.current_settings().index.text_kb;
     launcher.reload();
+    // Files are read again at once, rather than at the next rescan.
+    if launcher.current_settings().index.text_kb != text_kb
+        && let Some(indexer) = app.try_state::<Indexer>()
+    {
+        indexer.reindex();
+    }
     let shortcut = launcher.current_settings().shortcut();
     if let Err(err) = hotkey::apply(app, &shortcut) {
         launcher.add_notice(err);

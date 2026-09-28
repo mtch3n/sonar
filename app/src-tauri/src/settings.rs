@@ -73,6 +73,8 @@ pub struct Files {
 #[serde(default, deny_unknown_fields)]
 pub struct Index {
     pub rescan_minutes: u64,
+    /// How much of each file's text is searched, in KB.
+    pub text_kb: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -135,7 +137,10 @@ impl Default for Search {
 
 impl Default for Index {
     fn default() -> Index {
-        Index { rescan_minutes: 5 }
+        Index {
+            rescan_minutes: 5,
+            text_kb: (sonar_core::DEFAULT_TEXT_LIMIT / 1024) as u64,
+        }
     }
 }
 
@@ -203,6 +208,7 @@ impl Settings {
         self.editor()?;
         self.terminal()?;
         within("rescan_minutes", self.index.rescan_minutes, 1, 24 * 60)?;
+        within("text_kb", self.index.text_kb, 1, 16 * 1024)?;
         for (id, plugin) in &self.plugins {
             if let Some(keyword) = &plugin.keyword {
                 sonar_plugins::check_keyword(keyword)
@@ -320,6 +326,10 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
     set(
         &mut doc["index"]["rescan_minutes"],
         (settings.index.rescan_minutes as i64).into(),
+    );
+    set(
+        &mut doc["index"]["text_kb"],
+        (settings.index.text_kb as i64).into(),
     );
     set(&mut doc["updates"]["check"], settings.updates.check.into());
 
@@ -527,6 +537,7 @@ terminal = ""       # opens folders, like "ptyxis" or "open -a iTerm"; empty use
 
 [index]
 rescan_minutes = 5  # how often to rescan everything, for changes the watch missed
+text_kb = 64        # how much of each file's text is searched, 1 to 16384
 
 [updates]
 check = true        # look for new versions of Sonar on GitHub

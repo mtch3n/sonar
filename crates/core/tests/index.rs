@@ -1,6 +1,6 @@
 use std::{fs, io::Write, path::Path};
 
-use sonar_core::{Index, Query, Rules};
+use sonar_core::{DEFAULT_TEXT_LIMIT, Index, Query, Rules};
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn touch(root: &Path, relative: &str) {
@@ -74,7 +74,7 @@ fn scan_and_search() {
 
     let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
     let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
-    let stats = index.scan(&home, &rules).unwrap();
+    let stats = index.scan(&home, &rules, DEFAULT_TEXT_LIMIT).unwrap();
     assert_eq!(stats.projects, 1);
 
     assert_eq!(find(&index, &home, "invoice"), ["invoice-march.pdf"]);
@@ -95,7 +95,7 @@ fn scan_and_search() {
     assert!(find(&index, &home, "invoice -march").is_empty());
 
     fs::remove_file(home.join("Documents/invoice-march.pdf")).unwrap();
-    let stats = index.scan(&home, &rules).unwrap();
+    let stats = index.scan(&home, &rules, DEFAULT_TEXT_LIMIT).unwrap();
     assert_eq!(stats.removed, 1);
     assert!(find(&index, &home, "invoice").is_empty());
 }
@@ -119,7 +119,7 @@ fn folders_are_the_ones_scanned() {
 
     let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
     let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
-    index.scan(&home, &rules).unwrap();
+    index.scan(&home, &rules, DEFAULT_TEXT_LIMIT).unwrap();
 
     let mut folders = index.folders().unwrap();
     folders.sort();
@@ -150,7 +150,7 @@ fn search_inside_files() {
 
     let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
     let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
-    index.scan(&home, &rules).unwrap();
+    index.scan(&home, &rules, DEFAULT_TEXT_LIMIT).unwrap();
 
     let line = |text: &str| Some(text.to_owned());
     assert_eq!(
@@ -180,9 +180,28 @@ fn search_inside_files() {
     assert!(find(&index, &home, "budget -quarterly").contains(&"notes.md".to_owned()));
 
     write(&home, "Documents/notes.md", "Tuesday: dentist");
-    index.scan(&home, &rules).unwrap();
+    index.scan(&home, &rules, DEFAULT_TEXT_LIMIT).unwrap();
     assert_eq!(find(&index, &home, "dentist"), ["notes.md"]);
     assert_eq!(find(&index, &home, "budget"), ["budget.txt"]);
+}
+
+#[test]
+fn a_new_text_limit_rereads_unchanged_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(&home, "Documents/log.txt", "start middle finish");
+
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules, 12).unwrap();
+    assert_eq!(find(&index, &home, "middle"), ["log.txt"]);
+    assert!(find(&index, &home, "finish").is_empty());
+
+    index.scan(&home, &rules, DEFAULT_TEXT_LIMIT).unwrap();
+    assert_eq!(find(&index, &home, "finish"), ["log.txt"]);
+
+    index.scan(&home, &rules, 5).unwrap();
+    assert!(find(&index, &home, "middle").is_empty());
 }
 
 #[test]
@@ -209,7 +228,7 @@ fn search_inside_documents() {
 
     let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
     let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
-    index.scan(&home, &rules).unwrap();
+    index.scan(&home, &rules, DEFAULT_TEXT_LIMIT).unwrap();
 
     let line = |text: &str| Some(text.to_owned());
     assert_eq!(

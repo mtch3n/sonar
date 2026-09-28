@@ -6,7 +6,7 @@ use std::{
 
 use sonar_core::{Index, Paths, Rules};
 
-use crate::watcher::Watcher;
+use crate::{settings, watcher::Watcher};
 
 pub enum Status {
     Indexing,
@@ -19,12 +19,12 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    /// Scans now, then again soon after files change, and every `interval()` in case
-    /// a change went unseen. `interval()` is asked after each scan so a changed
-    /// setting applies from the next wait.
+    /// Scans now, then again soon after files change, and every `rescan_minutes` in
+    /// case a change went unseen. `settings()` is asked for each scan and wait, so a
+    /// changed setting applies from the next one.
     pub fn start(
         paths: Paths,
-        interval: impl Fn() -> Duration + Send + 'static,
+        settings: impl Fn() -> settings::Index + Send + 'static,
         on_status: impl Fn(Status) + Send + 'static,
     ) -> Indexer {
         let (wake, woken) = mpsc::channel();
@@ -42,8 +42,10 @@ impl Indexer {
             watcher.follow(index.folders().unwrap_or_default());
             loop {
                 on_status(Status::Indexing);
-                let scanned = Rules::load(&paths.rules, &paths.home)
-                    .and_then(|rules| index.scan(&paths.home, &rules));
+                let scanned = Rules::load(&paths.rules, &paths.home).and_then(|rules| {
+                    let text_limit = settings().text_kb as usize * 1024;
+                    index.scan(&paths.home, &rules, text_limit)
+                });
                 on_status(match scanned {
                     Ok(stats) => Status::Ready {
                         files: stats.files,
@@ -54,7 +56,8 @@ impl Indexer {
                 if let Ok(folders) = index.folders() {
                     watcher.follow(folders);
                 }
-                match woken.recv_timeout(interval()) {
+                let interval = Duration::from_secs(settings().rescan_minutes * 60);
+                match woken.recv_timeout(interval) {
                     Ok(()) | Err(RecvTimeoutError::Timeout) => while woken.try_recv().is_ok() {},
                     Err(RecvTimeoutError::Disconnected) => return,
                 }

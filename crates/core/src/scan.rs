@@ -35,15 +35,24 @@ pub struct ScanStats {
     pub removed: u64,
 }
 
-pub(crate) fn scan(conn: &mut Connection, root: &Path, rules: &Rules) -> Result<ScanStats> {
+pub(crate) fn scan(
+    conn: &mut Connection,
+    root: &Path,
+    rules: &Rules,
+    text_limit: usize,
+) -> Result<ScanStats> {
     let tx = conn.transaction()?;
     let scan_id: i64 =
         tx.query_row("SELECT coalesce(max(scan_id), 0) + 1 FROM files", [], |r| {
             r.get(0)
         })?;
+    let last_limit: Option<i64> = tx
+        .query_row("SELECT bytes FROM text_limit", [], |r| r.get(0))
+        .optional()?;
+    let reread = last_limit != Some(text_limit as i64);
     let mut stats = ScanStats::default();
     {
-        let mut writer = Writer::new(&tx, scan_id)?;
+        let mut writer = Writer::new(&tx, scan_id, reread)?;
         let rules = rules.clone();
         let walker = WalkBuilder::new(root)
             .hidden(false)
@@ -153,7 +162,7 @@ pub(crate) fn scan(conn: &mut Connection, root: &Path, rules: &Rules) -> Result<
                     },
                     || {
                         if readable {
-                            text::read(path, &ext)
+                            text::read(path, &ext, text_limit)
                         } else {
                             None
                         }
@@ -164,6 +173,13 @@ pub(crate) fn scan(conn: &mut Connection, root: &Path, rules: &Rules) -> Result<
         }
     }
     stats.removed = tx.execute("DELETE FROM files WHERE scan_id <> ?1", [scan_id])? as u64;
+    if reread {
+        tx.execute("DELETE FROM text_limit", [])?;
+        tx.execute(
+            "INSERT INTO text_limit (bytes) VALUES (?1)",
+            [text_limit as i64],
+        )?;
+    }
     tx.commit()?;
     Ok(stats)
 }
@@ -188,10 +204,12 @@ struct Writer<'t> {
     text_put: Statement<'t>,
     text_delete: Statement<'t>,
     scan_id: i64,
+    /// Whether every file's text is read again, because the text limit changed.
+    reread: bool,
 }
 
 impl<'t> Writer<'t> {
-    fn new(tx: &'t Transaction, scan_id: i64) -> Result<Writer<'t>> {
+    fn new(tx: &'t Transaction, scan_id: i64, reread: bool) -> Result<Writer<'t>> {
         Ok(Writer {
             find: tx.prepare(
                 "SELECT id, kind, size, mtime, project_id IS NULL FROM files WHERE path = ?1",
@@ -212,11 +230,12 @@ impl<'t> Writer<'t> {
             text_put: tx.prepare("INSERT OR REPLACE INTO texts (id, text) VALUES (?1, ?2)")?,
             text_delete: tx.prepare("DELETE FROM texts WHERE id = ?1")?,
             scan_id,
+            reread,
         })
     }
 
-    /// Writes a row, and reads its text with `text` only when the file is new or
-    /// has changed since the last scan.
+    /// Writes a row, and reads its text with `text` only when the file is new, has
+    /// changed since the last scan, or the text limit has.
     fn put(&mut self, row: &Row, text: impl FnOnce() -> Option<String>) -> Result<i64> {
         let found: Option<(i64, String, Option<i64>, i64, bool)> = self
             .find
@@ -250,12 +269,13 @@ impl<'t> Writer<'t> {
                 |r| r.get(0),
             )?,
         };
-        let unchanged = found.is_some_and(|(_, kind, size, mtime, outside)| {
-            kind == row.kind.as_str()
-                && size == row.size
-                && mtime == row.mtime
-                && outside == row.project_id.is_none()
-        });
+        let unchanged = !self.reread
+            && found.is_some_and(|(_, kind, size, mtime, outside)| {
+                kind == row.kind.as_str()
+                    && size == row.size
+                    && mtime == row.mtime
+                    && outside == row.project_id.is_none()
+            });
         if unchanged {
             return Ok(id);
         }
