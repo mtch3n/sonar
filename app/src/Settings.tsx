@@ -131,6 +131,22 @@ export default function Settings() {
             <Row label="Shortcut" hint="Click, then press the keys you want">
               <ShortcutField value={draft.shortcut} onChange={(shortcut) => change({ ...draft, shortcut })} />
             </Row>
+            <Row label="Opens on" hint="Where the pointer can't be found, the main screen">
+              <ToggleGroup
+                variant="outline"
+                size="sm"
+                spacing={0}
+                value={[draft.appearance.monitor]}
+                onValueChange={(picked: string[]) => {
+                  const monitor = picked[0] as Values["appearance"]["monitor"] | undefined;
+                  if (monitor) appearance({ monitor });
+                }}
+                aria-label="Opens on"
+              >
+                <ToggleGroupItem value="active">Screen with the pointer</ToggleGroupItem>
+                <ToggleGroupItem value="main">Main screen</ToggleGroupItem>
+              </ToggleGroup>
+            </Row>
             <Row label="Theme">
               <ToggleGroup
                 variant="outline"

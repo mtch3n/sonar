@@ -135,6 +135,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `shortcut` | `alt+space`, `ctrl+alt+space` on Linux | keys that open the search bar, like `ctrl+shift+k` |
 | `marketplaces` | `["mtch3n/sonar"]` | GitHub repositories whose plugins you can install |
 | `appearance.theme` | `system` | `system`, `light` or `dark` |
+| `appearance.monitor` | `active` | the screen the search bar opens on: `active`, the one the pointer is on, or `main` |
 | `appearance.accent` | `#ff5a1f` | color of the selected icon and the text cursor, or `system` for the desktop's accent color |
 | `appearance.width` | `720` | width of the search bar, 480 to 1600 |
 | `appearance.rows` | `8` | results shown before the list scrolls, 3 to 20 |

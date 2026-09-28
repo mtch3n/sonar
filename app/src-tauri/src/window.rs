@@ -1,5 +1,7 @@
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewWindow};
 
+use sonar_settings::Monitor;
+
 use crate::launcher::Launcher;
 
 const MAIN: &str = "main";
@@ -56,15 +58,18 @@ pub fn hide(app: &AppHandle) {
 fn present(window: &WebviewWindow) {
     let app = window.app_handle();
     crate::reload(app);
-    let width = app
+    let (width, monitor) = app
         .try_state::<Launcher>()
-        .map_or(720, |launcher| launcher.current_settings().appearance.width);
+        .map_or((720, Monitor::Active), |launcher| {
+            let appearance = launcher.current_settings().appearance;
+            (appearance.width, appearance.monitor)
+        });
     let _ = fit_width(window, width);
-    let _ = place(window, width);
+    let _ = place(window, width, monitor);
     let _ = window.show();
     // Window managers may pick their own spot for a window as it appears, so place it
     // again once it's shown.
-    let _ = place(window, width);
+    let _ = place(window, width, monitor);
     let _ = window.set_focus();
     let _ = window.emit("sonar://shown", ());
 }
@@ -79,13 +84,14 @@ fn fit_width(window: &WebviewWindow, width: u32) -> tauri::Result<()> {
     window.set_size(LogicalSize::new(f64::from(width), height))
 }
 
-/// Centers the bar near the top of the screen the pointer is on, like Spotlight.
-/// `width` comes from the settings: a hidden window on X11 can report a size that has
-/// nothing to do with it, which put the bar across two screens.
-fn place(window: &WebviewWindow, width: u32) -> tauri::Result<()> {
-    let under_pointer = match window.cursor_position() {
-        Ok(point) => window.monitor_from_point(point.x, point.y)?,
-        Err(_) => None,
+/// Centers the bar near the top of the screen the pointer is on, or of the main
+/// screen, like Spotlight. `width` comes from the settings: a hidden window on X11
+/// can report a size that has nothing to do with it, which put the bar across two
+/// screens. Where the pointer can't be found, the main screen is used.
+fn place(window: &WebviewWindow, width: u32, monitor: Monitor) -> tauri::Result<()> {
+    let under_pointer = match (monitor, window.cursor_position()) {
+        (Monitor::Active, Ok(point)) => window.monitor_from_point(point.x, point.y)?,
+        _ => None,
     };
     let monitor = match under_pointer {
         Some(monitor) => Some(monitor),

@@ -25,6 +25,7 @@ pub struct Settings {
 #[serde(default, deny_unknown_fields)]
 pub struct Appearance {
     pub theme: Theme,
+    pub monitor: Monitor,
     pub accent: String,
     pub width: u32,
     pub rows: u32,
@@ -44,6 +45,16 @@ impl Appearance {
             self.accent.clone()
         }
     }
+}
+
+/// The screen the search bar opens on.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Monitor {
+    /// The one the pointer is on.
+    Active,
+    /// The main screen, as the desktop calls it.
+    Main,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -180,6 +191,7 @@ impl Default for Appearance {
     fn default() -> Appearance {
         Appearance {
             theme: Theme::System,
+            monitor: Monitor::Active,
             accent: DEFAULT_ACCENT.to_owned(),
             width: 720,
             rows: 8,
@@ -376,6 +388,11 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
     set(&mut doc["shortcut"], settings.shortcut.as_str().into());
     set(&mut doc["marketplaces"], marketplaces.into());
     set(&mut doc["appearance"]["theme"], theme.into());
+    let monitor = match a.monitor {
+        Monitor::Active => "active",
+        Monitor::Main => "main",
+    };
+    set(&mut doc["appearance"]["monitor"], monitor.into());
     set(&mut doc["appearance"]["accent"], a.accent.as_str().into());
     set(&mut doc["appearance"]["width"], i64::from(a.width).into());
     set(&mut doc["appearance"]["rows"], i64::from(a.rows).into());
@@ -611,6 +628,7 @@ marketplaces = ["{OFFICIAL_MARKETPLACE}"]
 
 [appearance]
 theme = "system"    # "system", "light" or "dark"
+monitor = "active"  # screen the bar opens on: "active", the one the pointer is on, or "main"
 accent = "#ff5a1f"  # color of the selection and the text cursor, or "system"
 width = 720         # 480 to 1600
 rows = 8            # results shown before the list scrolls, 3 to 20
