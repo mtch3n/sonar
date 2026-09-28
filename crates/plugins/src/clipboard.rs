@@ -171,13 +171,6 @@ pub fn record(dir: &Path, on: impl Fn() -> bool) -> Result<(), String> {
         },
     };
 
-    /// What Sonar last asked the clipboard's owner for.
-    enum Asked {
-        Nothing,
-        Targets(u32),
-        Text,
-    }
-
     let failed = |err: &dyn std::fmt::Display| format!("couldn't watch the clipboard: {err}");
     let (conn, screen) = x11rb::connect(None).map_err(|e| failed(&e))?;
     let root = conn.setup().roots[screen].root;
@@ -212,57 +205,45 @@ pub fn record(dir: &Path, on: impl Fn() -> bool) -> Result<(), String> {
     let targets = atom(b"TARGETS")?;
     let utf8 = atom(b"UTF8_STRING")?;
     let secret = atom(b"x-kde-passwordManagerHint")?;
-    let incr = atom(b"INCR")?;
     let property = atom(b"SONAR_CLIPBOARD")?;
     conn.xfixes_select_selection_input(window, clipboard, SelectionEventMask::SET_SELECTION_OWNER)
         .map_err(|e| failed(&e))?;
     conn.flush().map_err(|e| failed(&e))?;
 
-    let mut asked = Asked::Nothing;
+    // Each answer says what it answers, and they're told apart by that, not by
+    // order: two copies in quick succession, as some apps make, interleave their
+    // answers, and a list of formats read as text is garbage.
     loop {
         match conn.wait_for_event().map_err(|e| failed(&e))? {
             Event::XfixesSelectionNotify(e) if e.owner != x11rb::NONE => {
                 conn.convert_selection(window, clipboard, targets, property, e.selection_timestamp)
                     .map_err(|e| failed(&e))?;
                 conn.flush().map_err(|e| failed(&e))?;
-                asked = Asked::Targets(e.selection_timestamp);
             }
-            Event::SelectionNotify(e) if e.requestor == window => {
-                if e.property == x11rb::NONE {
-                    asked = Asked::Nothing;
-                    continue;
-                }
+            Event::SelectionNotify(e) if e.requestor == window && e.property != x11rb::NONE => {
                 let reply = conn
                     .get_property(true, window, property, AtomEnum::ANY, 0, u32::MAX / 4)
                     .map_err(|e| failed(&e))?
                     .reply()
                     .map_err(|e| failed(&e))?;
-                asked = match asked {
-                    Asked::Targets(time) => {
-                        let offered: Vec<u32> =
-                            reply.value32().map(Iterator::collect).unwrap_or_default();
-                        if offered.contains(&secret) || !offered.contains(&utf8) {
-                            Asked::Nothing
-                        } else {
-                            conn.convert_selection(window, clipboard, utf8, property, time)
-                                .map_err(|e| failed(&e))?;
-                            conn.flush().map_err(|e| failed(&e))?;
-                            Asked::Text
+                if e.target == targets && reply.type_ == u32::from(AtomEnum::ATOM) {
+                    let offered: Vec<u32> =
+                        reply.value32().map(Iterator::collect).unwrap_or_default();
+                    if !offered.contains(&secret) && offered.contains(&utf8) {
+                        conn.convert_selection(window, clipboard, utf8, property, e.time)
+                            .map_err(|e| failed(&e))?;
+                        conn.flush().map_err(|e| failed(&e))?;
+                    }
+                } else if e.target == utf8 && reply.type_ == utf8 && on() {
+                    // Text sent in pieces (INCR) is longer than the history keeps,
+                    // and text that isn't UTF-8 isn't kept either.
+                    if let Ok(text) = std::str::from_utf8(&reply.value) {
+                        let now = jiff::Timestamp::now().as_millisecond();
+                        if let Err(err) = remember(dir, text, now) {
+                            eprintln!("sonar: couldn't keep a copy: {err}");
                         }
                     }
-                    Asked::Text => {
-                        // Text sent in pieces is longer than the history keeps.
-                        if reply.type_ != incr && on() {
-                            let text = String::from_utf8_lossy(&reply.value);
-                            let now = jiff::Timestamp::now().as_millisecond();
-                            if let Err(err) = remember(dir, &text, now) {
-                                eprintln!("sonar: couldn't keep a copy: {err}");
-                            }
-                        }
-                        Asked::Nothing
-                    }
-                    Asked::Nothing => Asked::Nothing,
-                };
+                }
             }
             _ => {}
         }
