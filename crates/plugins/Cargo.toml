@@ -15,9 +15,12 @@ base64.workspace = true
 dirs.workspace = true
 fend-core.workspace = true
 flate2.workspace = true
+hickory-resolver.workspace = true
+image.workspace = true
 iso_country.workspace = true
 iso_currency.workspace = true
 jiff.workspace = true
+listeners.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -25,7 +28,7 @@ sonar-apps.workspace = true
 sys-locale.workspace = true
 sysinfo.workspace = true
 tar.workspace = true
-tokio = { workspace = true, features = ["process", "io-util", "sync", "time", "rt"] }
+tokio = { workspace = true, features = ["process", "io-util", "sync", "time", "rt", "net"] }
 toml.workspace = true
 ureq.workspace = true
 

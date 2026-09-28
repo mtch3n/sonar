@@ -37,6 +37,7 @@ tauri-plugin-global-shortcut.workspace = true
 
 [target."cfg(target_os = \"linux\")".dependencies]
 webkit2gtk.workspace = true
+zbus.workspace = true
 
 [target."cfg(windows)".dependencies]
 windows-registry.workspace = true

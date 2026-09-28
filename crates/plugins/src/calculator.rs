@@ -20,7 +20,7 @@ const BUDGET: Duration = Duration::from_millis(50);
 /// the background when they're due and downloading is on.
 pub fn serve() {
     let saved =
-        std::env::var_os("SONAR_PLUGIN_DATA").map(|dir| PathBuf::from(dir).join("rates.json"));
+        std::env::var_os("SONAR_PLUGIN_DATA").map(|dir| PathBuf::from(dir).join(RATES_FILE));
     let rates: Arc<RwLock<Option<Arc<Rates>>>> = Arc::new(RwLock::new(
         saved.as_deref().and_then(Rates::load).map(Arc::new),
     ));
@@ -63,6 +63,8 @@ pub const ID: &str = "calculator";
 /// The calculator's settings keys.
 pub const CURRENCY: &str = "currency";
 pub const DOWNLOAD_RATES: &str = "rates";
+/// Where the latest exchange rates are kept, in the calculator's data folder.
+pub const RATES_FILE: &str = "rates.json";
 
 /// Arithmetic, units, currencies, time zones and dates, answered as you type.
 pub struct Calculator {

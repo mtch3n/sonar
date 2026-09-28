@@ -65,15 +65,7 @@ pub fn icon(id: &str) -> Option<std::path::PathBuf> {
 /// which the caller sets.
 pub fn open_terminal(terminal: &[String], dir: &str) -> Vec<String> {
     let mut command = terminal.to_vec();
-    let program = terminal
-        .iter()
-        .rev()
-        .find_map(|word| word.strip_prefix("--command="))
-        .or_else(|| terminal.first().map(String::as_str))
-        .unwrap_or_default();
-    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
-    let name = name.trim_end_matches(".exe");
-    match name {
+    match terminal_name(terminal) {
         // `open -a Terminal <folder>` on macOS.
         "open" => command.push(dir.to_owned()),
         "gnome-terminal" | "ptyxis" | "kgx" | "xfce4-terminal" | "mate-terminal" | "foot"
@@ -85,6 +77,35 @@ pub fn open_terminal(terminal: &[String], dir: &str) -> Vec<String> {
         _ => {}
     }
     command
+}
+
+/// The command that runs `argv` in a new window of `terminal`, which each terminal
+/// takes after its own flag; unknown ones get the common `-e`.
+pub fn run_in_terminal(terminal: &[String], argv: &[String]) -> Vec<String> {
+    let mut command = terminal.to_vec();
+    match terminal_name(terminal) {
+        "gnome-terminal" | "ptyxis" | "kgx" => command.push("--".to_owned()),
+        "xfce4-terminal" | "mate-terminal" | "tilix" => command.push("-x".to_owned()),
+        "kitty" | "foot" => {}
+        "wezterm" => command.extend(["start".to_owned(), "--".to_owned()]),
+        "wt" => command.push("--".to_owned()),
+        _ => command.push("-e".to_owned()),
+    }
+    command.extend(argv.iter().cloned());
+    command
+}
+
+/// The terminal's program name, like `ptyxis`, also when it's started through
+/// Flatpak with `--command=`.
+fn terminal_name(terminal: &[String]) -> &str {
+    let program = terminal
+        .iter()
+        .rev()
+        .find_map(|word| word.strip_prefix("--command="))
+        .or_else(|| terminal.first().map(String::as_str))
+        .unwrap_or_default();
+    let name = program.rsplit(['/', '\\']).next().unwrap_or(program);
+    name.trim_end_matches(".exe")
 }
 
 /// Sorted by name, each command once.
@@ -386,6 +407,29 @@ mod tests {
             command: vec!["open".into(), "-a".into(), "Visual Studio Code".into()],
         };
         assert_eq!(app.command_line(), "open -a 'Visual Studio Code'");
+    }
+
+    #[test]
+    fn terminals_run_a_command() {
+        let run = |command: &[&str]| {
+            let command: Vec<String> = command.iter().map(|w| w.to_string()).collect();
+            run_in_terminal(&command, &["journalctl".into(), "-f".into()])
+        };
+        assert_eq!(run(&["ptyxis"]), ["ptyxis", "--", "journalctl", "-f"]);
+        assert_eq!(run(&["kitty"]), ["kitty", "journalctl", "-f"]);
+        assert_eq!(run(&["konsole"]), ["konsole", "-e", "journalctl", "-f"]);
+        assert_eq!(
+            run(&["flatpak", "run", "--command=ptyxis", "app.devsuite.Ptyxis"]),
+            [
+                "flatpak",
+                "run",
+                "--command=ptyxis",
+                "app.devsuite.Ptyxis",
+                "--",
+                "journalctl",
+                "-f"
+            ]
+        );
     }
 
     #[test]

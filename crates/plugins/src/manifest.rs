@@ -29,6 +29,38 @@ pub struct Manifest {
     pub position: Position,
     /// Programs the plugin needs, like `python3`, and how to get them.
     pub requires: Vec<Requirement>,
+    /// The systems the plugin works on; empty means all of them.
+    pub platforms: Vec<Platform>,
+}
+
+/// An operating system a plugin can say it works on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Platform {
+    Linux,
+    Macos,
+    Windows,
+}
+
+impl Platform {
+    /// The system Sonar is running on.
+    pub fn current() -> Platform {
+        if cfg!(target_os = "macos") {
+            Platform::Macos
+        } else if cfg!(windows) {
+            Platform::Windows
+        } else {
+            Platform::Linux
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Platform::Linux => "Linux",
+            Platform::Macos => "macOS",
+            Platform::Windows => "Windows",
+        }
+    }
 }
 
 /// Where a plugin without a keyword shows its results.
@@ -64,10 +96,12 @@ struct Raw {
     position: Position,
     #[serde(default)]
     requires: Vec<Requirement>,
+    #[serde(default)]
+    platforms: Vec<Platform>,
 }
 
-/// Every plugin in `dir`, one per folder, sorted by id, and a message for each
-/// folder whose `plugin.toml` couldn't be used.
+/// Every plugin in `dir` that works on this system, one per folder, sorted by id,
+/// and a message for each folder whose `plugin.toml` couldn't be used.
 pub fn discover(dir: &Path) -> (Vec<Manifest>, Vec<String>) {
     let mut manifests = Vec::new();
     let mut problems = Vec::new();
@@ -81,7 +115,8 @@ pub fn discover(dir: &Path) -> (Vec<Manifest>, Vec<String>) {
             continue;
         }
         match Manifest::read(&folder) {
-            Ok(manifest) => manifests.push(manifest),
+            Ok(manifest) if manifest.runs_here() => manifests.push(manifest),
+            Ok(_) => {}
             Err(err) => problems.push(format!("{}: {err}", file.display())),
         }
     }
@@ -115,6 +150,20 @@ impl Manifest {
             settings,
             position: raw.position,
             requires: raw.requires,
+            platforms: raw.platforms,
+        })
+    }
+
+    /// Whether the plugin works on the system Sonar is running on.
+    pub fn runs_here(&self) -> bool {
+        self.platforms.is_empty() || self.platforms.contains(&Platform::current())
+    }
+
+    /// Why the plugin can't be installed here, when it's made for other systems.
+    pub fn unsupported(&self) -> Option<String> {
+        (!self.runs_here()).then(|| {
+            let names: Vec<&str> = self.platforms.iter().map(|p| p.name()).collect();
+            format!("{} works on {} only", self.name, names.join(" and "))
         })
     }
 
@@ -163,10 +212,37 @@ fn on_path(program: &str) -> bool {
     })
 }
 
-/// A picture file as a `data:` URL the search window can show, for plugins' own
-/// icons and the pictures on their results.
+/// Pictures on results are drawn this many pixels wide at most; larger ones are
+/// scaled down, so a 1024-pixel app icon doesn't cost a megabyte per row.
+const PICTURE_PIXELS: u32 = 64;
+/// Raster pictures bigger than this aren't worth decoding for a small icon.
+const MAX_PICTURE_BYTES: u64 = 8 * 1024 * 1024;
+
+/// A result's picture as a `data:` URL the search window can show. SVGs are used as
+/// they are; PNG, JPEG and WebP pictures are scaled down to fit the row.
 pub fn image_url(path: &Path) -> Result<String, String> {
-    data_url(path)
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+    if ext.as_deref() == Some("svg") {
+        return data_url(path);
+    }
+    let size = fs::metadata(path)
+        .map_err(|err| format!("{}: {err}", path.display()))?
+        .len();
+    if size > MAX_PICTURE_BYTES {
+        return Err(format!("{} is over 8 MB", path.display()));
+    }
+    let picture = image::open(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    let picture = if picture.width() > PICTURE_PIXELS || picture.height() > PICTURE_PIXELS {
+        picture.thumbnail(PICTURE_PIXELS, PICTURE_PIXELS)
+    } else {
+        picture
+    };
+    let mut png = std::io::Cursor::new(Vec::new());
+    picture
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|err| err.to_string())?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(png.into_inner());
+    Ok(format!("data:image/png;base64,{encoded}"))
 }
 
 fn data_url(path: &Path) -> Result<String, String> {
@@ -224,6 +300,12 @@ mod tests {
             "name = \"S\"\ncommand = [\"x\"]\nkeyword = \"a b\"",
         );
         fs::create_dir_all(root.join("notes")).unwrap();
+        let elsewhere = if cfg!(windows) { "linux" } else { "windows" };
+        plugin(
+            root,
+            "elsewhere",
+            &format!("name = \"E\"\ncommand = [\"x\"]\nplatforms = [\"{elsewhere}\"]"),
+        );
 
         let (manifests, problems) = discover(root);
         let ids: Vec<&str> = manifests.iter().map(|m| m.id.as_str()).collect();
@@ -240,6 +322,31 @@ mod tests {
         );
         assert_eq!(web.program(), PathBuf::from("python3"));
         assert_eq!(manifests[0].program(), root.join("clock").join("bin/clock"));
+    }
+
+    #[test]
+    fn says_which_systems_a_plugin_is_for() {
+        let tmp = tempfile::tempdir().unwrap();
+        plugin(
+            tmp.path(),
+            "tray",
+            "name = \"Tray\"\ncommand = [\"x\"]\nplatforms = [\"linux\", \"macos\"]",
+        );
+        let tray = Manifest::read(&tmp.path().join("tray")).unwrap();
+        assert_eq!(tray.platforms, [Platform::Linux, Platform::Macos]);
+        assert_eq!(tray.runs_here(), !cfg!(windows));
+        if cfg!(windows) {
+            assert_eq!(
+                tray.unsupported().as_deref(),
+                Some("Tray works on Linux and macOS only")
+            );
+        }
+        plugin(
+            tmp.path(),
+            "bad",
+            "name = \"Bad\"\ncommand = [\"x\"]\nplatforms = [\"beos\"]",
+        );
+        assert!(Manifest::read(&tmp.path().join("bad")).is_err());
     }
 
     #[test]
@@ -274,6 +381,32 @@ mod tests {
         assert_eq!(manifest.position, Position::Bottom);
         #[cfg(unix)]
         assert_eq!(manifest.missing(), None);
+    }
+
+    #[test]
+    fn scales_big_pictures_down_for_rows() {
+        let tmp = tempfile::tempdir().unwrap();
+        let big = tmp.path().join("big.png");
+        image::RgbaImage::from_pixel(1024, 1024, image::Rgba([255, 90, 31, 255]))
+            .save(&big)
+            .unwrap();
+        let url = image_url(&big).unwrap();
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(url.strip_prefix("data:image/png;base64,").unwrap())
+            .unwrap();
+        let small = image::load_from_memory(&png).unwrap();
+        assert_eq!((small.width(), small.height()), (64, 64));
+        assert!(png.len() < 8 * 1024, "{} bytes", png.len());
+
+        let svg = tmp.path().join("icon.svg");
+        fs::write(&svg, "<svg/>").unwrap();
+        assert!(
+            image_url(&svg)
+                .unwrap()
+                .starts_with("data:image/svg+xml;base64,")
+        );
+        fs::write(tmp.path().join("broken.png"), "not a png").unwrap();
+        assert!(image_url(&tmp.path().join("broken.png")).is_err());
     }
 
     #[test]

@@ -261,7 +261,7 @@ impl Launcher {
         let settings = self.current_settings();
         View {
             theme: settings.appearance.theme,
-            accent: settings.appearance.accent,
+            accent: settings.appearance.accent_color(),
             width: settings.appearance.width,
             rows: settings.appearance.rows,
             indexing: self.indexing.load(Ordering::Relaxed),
@@ -564,16 +564,8 @@ impl Launcher {
                 Ok(close(app))
             }
             Command::Terminal(path) => {
-                let terminal = match read(&self.settings).terminal()? {
-                    Some(terminal) => terminal,
-                    None => sonar_apps::terminals()
-                        .into_iter()
-                        .next()
-                        .map(|app| app.command)
-                        .ok_or("No terminal found; choose one in Settings")?,
-                };
                 run(
-                    &sonar_apps::open_terminal(&terminal, &path),
+                    &sonar_apps::open_terminal(&self.terminal()?, &path),
                     Path::new(&path),
                 )?;
                 Ok(close(app))
@@ -646,8 +638,24 @@ impl Launcher {
                 return Ok(close(app));
             }
             Action::Fill(text) => return Ok(Outcome::Fill { text }),
+            Action::Terminal(argv) => {
+                run(&sonar_apps::run_in_terminal(&self.terminal()?, &argv), dir)?;
+                return Ok(close(app));
+            }
         }
         Ok(close(app))
+    }
+
+    /// The terminal from the settings, or the first one found.
+    fn terminal(&self) -> Result<Vec<String>, String> {
+        match read(&self.settings).terminal()? {
+            Some(terminal) => Ok(terminal),
+            None => sonar_apps::terminals()
+                .into_iter()
+                .next()
+                .map(|app| app.command)
+                .ok_or_else(|| "No terminal found; choose one in Settings".into()),
+        }
     }
 }
 
@@ -784,6 +792,7 @@ impl Command {
                 Action::Copy(_) => "Copy",
                 Action::Run(_) => "Run",
                 Action::Fill(_) => "Use",
+                Action::Terminal(_) => "Run in terminal",
             },
             Command::Install { update: false, .. } => "Install",
             Command::Install { update: true, .. } => "Update",
@@ -903,12 +912,27 @@ fn glyph(name: &str) -> &'static str {
 }
 
 /// A result's picture as a `data:` URL: a file relative to the plugin folder, or a
-/// `data:` URL as it is. Pictures that can't be read are left out.
+/// `data:` URL as it is. Pictures that can't be read are left out. Files are scaled
+/// and encoded once and kept until they change, since the same app and window icons
+/// come back with every keystroke.
 fn picture(dir: &Path, image: &str) -> Option<String> {
+    use std::{sync::LazyLock, time::SystemTime};
+    type Seen = HashMap<PathBuf, (Option<SystemTime>, Option<String>)>;
+    static PICTURES: LazyLock<Mutex<Seen>> = LazyLock::new(Mutex::default);
+
     if image.starts_with("data:image/") {
         return Some(image.to_owned());
     }
-    sonar_plugins::image_url(&dir.join(image)).ok()
+    let path = dir.join(image);
+    let changed = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+    if let Some((when, url)) = lock(&PICTURES).get(&path)
+        && *when == changed
+    {
+        return url.clone();
+    }
+    let url = sonar_plugins::image_url(&path).ok();
+    lock(&PICTURES).insert(path, (changed, url.clone()));
+    url
 }
 
 fn installed_draft(manifest: &Manifest, keyword: Option<&str>, enabled: bool) -> Draft {
@@ -1234,6 +1258,7 @@ mod tests {
             settings: Vec::new(),
             position: sonar_plugins::Position::Top,
             requires: Vec::new(),
+            platforms: Vec::new(),
         };
         let item = |icon: Option<&str>, image: Option<&str>| Item {
             title: "3,176.54 TWD".into(),

@@ -1,6 +1,6 @@
 :root {
   color-scheme: light;
-  --accent: #ff5a1f;
+  --sonar-accent: #ff5a1f;
   --panel: rgb(250 250 249 / 0.97);
   --border: rgb(24 24 27 / 0.13);
   --divider: rgb(24 24 27 / 0.08);
@@ -51,7 +51,7 @@ body {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: color-mix(in srgb, var(--sonar-accent) 32%, transparent);
 }
 
 /* Sized by its content; the window follows it. */
@@ -87,7 +87,7 @@ body {
   font: inherit;
   font-size: 20px;
   letter-spacing: -0.01em;
-  caret-color: var(--accent);
+  caret-color: var(--sonar-accent);
 }
 
 .bar input::placeholder {
@@ -167,7 +167,7 @@ body {
 }
 
 .row[aria-selected="true"] .glyph {
-  color: var(--accent);
+  color: var(--sonar-accent);
 }
 
 .glyph img {

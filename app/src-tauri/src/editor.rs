@@ -1,7 +1,7 @@
 //! The Settings window: a form over `settings.toml`.
 
 use serde::Serialize;
-use sonar_plugins::Setting;
+use sonar_plugins::{Setting, calculator, currency::Rates};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::{
@@ -53,6 +53,10 @@ pub struct Editor {
     /// `files.terminal`.
     editors: Vec<Tool>,
     terminals: Vec<Tool>,
+    /// When the saved exchange rates were published, in Unix seconds.
+    rates_published: Option<i64>,
+    /// The desktop's accent, which `system` stands for.
+    system_accent: Option<String>,
     /// Why the file can't be read, if it can't; the form then shows the last
     /// settings that worked.
     problem: Option<String>,
@@ -100,6 +104,8 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
         plugins: plugins(&launcher),
         editors: tools(sonar_apps::editors()),
         terminals: tools(sonar_apps::terminals()),
+        system_accent: host::system_accent(),
+        rates_published: Rates::load(&rates_file(&launcher)).map(|r| r.published),
         path: path.display().to_string(),
         problem: Settings::load(path).err(),
     }
@@ -144,6 +150,28 @@ fn check_values(plugins: &[PluginInfo], settings: &Settings) -> Result<(), Strin
         }
     }
     Ok(())
+}
+
+fn rates_file(launcher: &Launcher) -> std::path::PathBuf {
+    launcher
+        .paths()
+        .plugin_data
+        .join(calculator::ID)
+        .join(calculator::RATES_FILE)
+}
+
+/// Downloads exchange rates now, for the calculator to use from the next search on,
+/// and says when they were published.
+#[tauri::command]
+pub async fn rates_update(launcher: State<'_, Launcher>) -> Result<i64, String> {
+    let path = rates_file(&launcher);
+    tauri::async_runtime::spawn_blocking(move || {
+        let rates = Rates::download()?;
+        rates.save(&path)?;
+        Ok(rates.published)
+    })
+    .await
+    .map_err(|err| err.to_string())?
 }
 
 #[tauri::command]

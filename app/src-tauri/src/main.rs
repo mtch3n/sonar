@@ -14,7 +14,10 @@ mod updater;
 mod watcher;
 mod window;
 
+use std::sync::{Arc, RwLock};
+
 use sonar_core::Paths;
+use sonar_plugins::clipboard;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
 
 use crate::{
@@ -45,6 +48,17 @@ fn main() {
         Some("--install-gnome-extension") => {
             if let Err(err) = gnome::install_extension() {
                 eprintln!("sonar: couldn't install the GNOME extension: {err}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        Some("--forget-copy") => {
+            let copied = args.next().and_then(|c| c.parse().ok());
+            let forgot = Paths::from_env()
+                .map_err(|err| err.to_string())
+                .and_then(|paths| clipboard::forget(&clipboard_dir(&paths), copied));
+            if let Err(err) = forgot {
+                eprintln!("sonar: couldn't remove the copy: {err}");
                 std::process::exit(1);
             }
             return;
@@ -92,6 +106,7 @@ fn main() {
             let tray = tray::create(app.handle())?;
             app.manage(tray.clone());
 
+            record_copies(&paths, &settings);
             let handle = app.handle().clone();
             let rescan_every = move || {
                 let minutes = settings.read().map_or(5, |s| s.index.rescan_minutes);
@@ -134,7 +149,8 @@ fn main() {
             launcher::view,
             editor::settings_get,
             editor::settings_save,
-            editor::settings_open_file
+            editor::settings_open_file,
+            editor::rates_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running Sonar");
@@ -145,6 +161,26 @@ fn main() {
 fn query_arg(args: &[String]) -> Option<String> {
     let at = args.iter().position(|a| a == QUERY)?;
     args.get(at + 1).cloned()
+}
+
+fn clipboard_dir(paths: &Paths) -> std::path::PathBuf {
+    paths.plugin_data.join(clipboard::ID)
+}
+
+/// Keeps what's copied for the clipboard plugin, while it's turned on.
+fn record_copies(paths: &Paths, settings: &Arc<RwLock<settings::Settings>>) {
+    let dir = clipboard_dir(paths);
+    let settings = settings.clone();
+    std::thread::spawn(move || {
+        let on = || {
+            settings
+                .read()
+                .is_ok_and(|s| s.plugin(clipboard::ID).enabled)
+        };
+        if let Err(err) = clipboard::record(&dir, on) {
+            eprintln!("sonar: couldn't watch the clipboard: {err}");
+        }
+    });
 }
 
 /// Applies `settings.toml` and the plugin folders: runs every time the bar opens.

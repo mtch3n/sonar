@@ -68,7 +68,7 @@ fn answer(
                 "--install-gnome-extension".into(),
             ];
             let mut item = Item::new(
-                "Install the Sonar windows extension for GNOME",
+                "Install the Sonar extension for GNOME",
                 Action::Run(install),
             );
             item.subtitle = Some(
@@ -109,7 +109,8 @@ fn answer(
             let mut item = Item::new(title, Action::Run(call("Activate", w.id)));
             item.subtitle = Some(subtitle.join(" · "));
             item.image = icon(&w.app_id);
-            item.icon = item.image.is_none().then(|| "window".into());
+            // The glyph stands in if the picture can't be shown.
+            item.icon = Some("window".into());
             item.alt = Some(Action::Run(call("Close", w.id)));
             item.label = Some("Switch".into());
             item.alt_label = Some("Close window".into());
