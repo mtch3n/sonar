@@ -15,11 +15,11 @@ const LEAD_WORDS: usize = 3;
 
 const PLAIN_EXTS: &[&str] = &["txt", "md", "markdown", "rst", "org", "tex", "csv", "tsv"];
 
-/// Whether files of this kind and extension have text worth reading. Keys and
+/// Whether files of this kind and extension have text that can be read. Keys and
 /// certificates never do.
 pub(crate) fn is_readable(kind: Kind, ext: &str) -> bool {
     match kind {
-        Kind::Script | Kind::Config => true,
+        Kind::Code | Kind::Script | Kind::Config => true,
         Kind::Pdf | Kind::Doc | Kind::Sheet | Kind::Slides => {
             PLAIN_EXTS.contains(&ext) || documents::EXTS.contains(&ext)
         }

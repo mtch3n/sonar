@@ -144,12 +144,17 @@ pub(crate) fn search(conn: &Connection, q: &Query, now: i64) -> Result<Vec<Hit>>
         })
         .filter(|w| !w.is_empty())
         .collect();
-    let mut texts = conn.prepare("SELECT text FROM texts WHERE id = ?1")?;
+    let mut texts = conn.prepare(
+        "SELECT c.text FROM files f JOIN cache.contents c ON c.hash = f.hash WHERE f.id = ?1",
+    )?;
     let mut hits = Vec::with_capacity(rows.len());
     for (id, by_name, mut hit) in rows {
         if !by_name {
-            let file_text: Option<String> = texts.query_row([id], |r| r.get(0)).optional()?;
-            hit.line = file_text.and_then(|t| text::matching_line(&t, &wanted));
+            let file_text: Option<Option<String>> =
+                texts.query_row([id], |r| r.get(0)).optional()?;
+            hit.line = file_text
+                .flatten()
+                .and_then(|t| text::matching_line(&t, &wanted));
         }
         hits.push(hit);
     }

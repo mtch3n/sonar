@@ -6,7 +6,7 @@ use std::{
 
 use sonar_core::{Index, Paths, Rules};
 
-use crate::{settings, watcher::Watcher};
+use crate::watcher::Watcher;
 
 pub enum Status {
     Indexing,
@@ -24,7 +24,7 @@ impl Indexer {
     /// changed setting applies from the next one.
     pub fn start(
         paths: Paths,
-        settings: impl Fn() -> settings::Index + Send + 'static,
+        settings: impl Fn() -> sonar_settings::Index + Send + 'static,
         on_status: impl Fn(Status) + Send + 'static,
     ) -> Indexer {
         let (wake, woken) = mpsc::channel();
@@ -42,10 +42,8 @@ impl Indexer {
             watcher.follow(index.folders().unwrap_or_default());
             loop {
                 on_status(Status::Indexing);
-                let scanned = Rules::load(&paths.rules, &paths.home).and_then(|rules| {
-                    let text_limit = settings().text_kb as usize * 1024;
-                    index.scan(&paths.home, &rules, text_limit)
-                });
+                let scanned = Rules::load(&paths.rules, &paths.home)
+                    .and_then(|rules| index.scan(&paths.home, &rules, &settings().scan_options()));
                 on_status(match scanned {
                     Ok(stats) => Status::Ready {
                         files: stats.files,

@@ -1,14 +1,12 @@
 //! The Settings window: a form over `settings.toml`.
 
 use serde::Serialize;
+use sonar_core::{Kind, Level, Levels};
 use sonar_plugins::{Setting, calculator, currency::Rates};
+use sonar_settings::{self as settings, Settings};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
-use crate::{
-    host,
-    launcher::Launcher,
-    settings::{self, Settings},
-};
+use crate::{host, launcher::Launcher};
 
 const LABEL: &str = "settings";
 
@@ -60,6 +58,32 @@ pub struct Editor {
     /// Why the file can't be read, if it can't; the form then shows the last
     /// settings that worked.
     problem: Option<String>,
+    /// The kinds of file whose level can be chosen.
+    kinds: Vec<KindLevels>,
+}
+
+#[derive(Serialize)]
+pub struct KindLevels {
+    kind: &'static str,
+    default: &'static str,
+    /// The levels it can have, lowest first.
+    levels: Vec<&'static str>,
+}
+
+fn kinds() -> Vec<KindLevels> {
+    Kind::ALL
+        .into_iter()
+        .filter(|kind| !matches!(kind, Kind::Folder | Kind::Project))
+        .map(|kind| KindLevels {
+            kind: kind.as_str(),
+            default: Levels::default_for(kind).as_str(),
+            levels: Level::ALL
+                .into_iter()
+                .filter(|level| *level <= Levels::max_for(kind))
+                .map(Level::as_str)
+                .collect(),
+        })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -108,6 +132,7 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
         rates_published: Rates::load(&rates_file(&launcher)).map(|r| r.published),
         path: path.display().to_string(),
         problem: Settings::load(path).err(),
+        kinds: kinds(),
     }
 }
 

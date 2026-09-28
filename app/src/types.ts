@@ -60,7 +60,7 @@ export type Settings = {
   appearance: { theme: "system" | "light" | "dark"; accent: string; width: number; rows: number };
   search: { limit: number };
   files: { editor: string; terminal: string };
-  index: { rescan_minutes: number; text_kb: number };
+  index: { rescan_minutes: number; text_kb: number; kinds: Record<string, string> };
   updates: { check: boolean };
   plugins: Record<string, PluginSettings>;
 };
@@ -90,4 +90,6 @@ export type Editor = {
   /** The desktop's accent, which "system" stands for. */
   systemAccent: string | null;
   problem: string | null;
+  /** The kinds of file whose level can be chosen, and the levels each can have. */
+  kinds: { kind: string; default: string; levels: string[] }[];
 };

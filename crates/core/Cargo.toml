@@ -12,6 +12,7 @@ homepage.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+blake3.workspace = true
 calamine.workspace = true
 dirs.workspace = true
 ignore.workspace = true
