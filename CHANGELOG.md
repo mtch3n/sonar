@@ -1,12 +1,28 @@
 # Changelog
 
-## [0.4.0-1] - 2026-09-28
+## [0.4.0] - 2026-09-28
 
-Nightly build for trying what's coming in 0.4.0. It's a prerelease, so Sonar's updater and `sonar update` stay on 0.3.0 unless you install it yourself.
+Search:
+- Words of three letters or more also match the text inside files outside code projects: notes, Markdown, CSV, scripts and config files, and PDF, Word, Excel, PowerPoint and OpenDocument files. The result shows the line that matched; name matches still come first. Keys and certificates are never read, nor OneDrive and iCloud files that aren't downloaded. The index is rebuilt once
+- New, renamed, changed and deleted files show up about a second after they settle, instead of at the next rescan
+- Bookmarks and history from Chrome, Chromium, Brave, Edge and Vivaldi (and Arc on macOS), from every profile, show above the files and open in the browser and profile they came from. Bookmarks, history and each profile can be turned off in Settings
+- Installed apps: type part of an app's name, like `fire` or `vsc`, to open it
 
-- Search inside files: words of three letters or more also match the text of notes, Markdown, CSV, scripts and config files outside code projects, and the result shows the line that matched. Name matches still come first. Keys and certificates are never read, nor OneDrive and iCloud files that aren't downloaded. The index is rebuilt once
-- Currency conversion in the calculator: `100 usd to eur`, `$20 in yen`, and amounts like `100 usd` in your own currency, which starts as your region's and can be changed in Settings. Ctrl + Enter copies just the number. Exchange rates come from ExchangeRate-API once a day and are kept for offline use; Download exchange rates in Settings turns that off
-- Plugins can declare their own settings, which the Settings window shows under each plugin and sends with every query. Web search lets you pick the engine listed first
+Calculator:
+- Currencies: `100 usd to eur`, `$20 in yen`, and amounts like `100 usd` in your own currency, which starts as your region's. Ctrl + Enter copies just the number. Rates come from ExchangeRate-API once a day and are kept for offline use
+- Time zones and dates: `time in tokyo`, `3pm tokyo in taipei`, `today + 90 days`, `days until 2026-12-25`
+
+Plugins:
+- Sonar's own features now run as plugins that can be turned off or given a keyword: Apps, Browser, Calculator, System (lock, sleep, restart, shut down, log out, empty trash; the drastic ones ask for a second Enter) and Processes (`kill chrome`)
+- Windows (`w`) lists and switches between open windows on GNOME, through a small GNOME Shell extension Sonar offers to install. Bound to Alt + Tab with `sonar-app --query "w "`, it can stand in for GNOME's switcher
+- Plugins can declare settings, which the Settings window shows under each plugin; put results above the files; give results their own icons and action names; and say which programs they need, like Python, with how to get them. Web search lets you pick the engine listed first
+
+Everything else:
+- Choose the editor that opens projects, code, scripts and config files, and the terminal that Ctrl + Enter opens folders and projects in; Settings lists the ones installed
+- The Settings window has its own title bar, and both windows lose their hard borders
+- The search bar no longer lags behind the keyboard on Linux
+- `sonar-app --settings` opens Settings and `sonar-app --query "text"` opens the bar with text typed
+- Saving from Settings adds sections an older settings.toml lacks as sections rather than inline tables
 
 ## [0.3.0] - 2026-09-25
 

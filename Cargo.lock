@@ -4737,7 +4737,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-app"
-version = "0.4.0-1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "jiff",
@@ -4765,7 +4765,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-apps"
-version = "0.4.0-1"
+version = "0.4.0"
 dependencies = [
  "shell-words",
  "tempfile",
@@ -4773,7 +4773,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-cli"
-version = "0.4.0-1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4783,7 +4783,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-core"
-version = "0.4.0-1"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "calamine",
@@ -4799,7 +4799,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-plugins"
-version = "0.4.0-1"
+version = "0.4.0"
 dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
