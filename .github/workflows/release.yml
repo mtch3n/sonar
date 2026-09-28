@@ -3,7 +3,8 @@ name: Release
 # A tag like v0.1.0 publishes that version. Every night, and whenever it's run by
 # hand, main is built as a nightly: a prerelease under the `nightly` tag, versioned
 # like 0.4.2-nightly.20260928 after 0.4.1, which never becomes the latest release that
-# installed copies update to.
+# installed copies update to. Run by hand on another branch, it's a trial: everything
+# is built the same way and kept as the run's artifacts, and nothing is released.
 on:
   push:
     tags: ["v*"]
@@ -24,6 +25,7 @@ jobs:
       id: ${{ steps.create.outputs.id }}
       version: ${{ steps.version.outputs.version }}
       nightly: ${{ steps.version.outputs.nightly }}
+      trial: ${{ steps.version.outputs.trial }}
     steps:
       - uses: actions/checkout@v7
       - name: Work out the version
@@ -38,11 +40,14 @@ jobs:
               exit 1
             fi
             echo "nightly=false" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_REF_NAME" != main ]; then
+            # Run by hand on another branch: a trial build, kept as the run's
+            # artifacts and never released.
+            IFS=. read -r major minor patch <<< "$version"
+            version="$major.$minor.$((patch + 1))-trial.$(date -u +%Y%m%d)"
+            echo "trial=true" >> "$GITHUB_OUTPUT"
+            echo "nightly=true" >> "$GITHUB_OUTPUT"
           else
-            if [ "$GITHUB_REF_NAME" != main ]; then
-              echo "Nightlies are built from main"
-              exit 1
-            fi
             built=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/nightly" --jq .object.sha 2>/dev/null || true)
             if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$built" = "$GITHUB_SHA" ]; then
               echo "main hasn't changed since the last nightly"
@@ -56,7 +61,7 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Create a draft release
         id: create
-        if: steps.version.outputs.skip != 'true'
+        if: steps.version.outputs.skip != 'true' && steps.version.outputs.trial != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
@@ -92,7 +97,7 @@ jobs:
 
   app:
     needs: draft
-    if: needs.draft.outputs.id
+    if: needs.draft.outputs.id || needs.draft.outputs.trial == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -160,10 +165,19 @@ jobs:
           tauriScript: pnpm tauri
           releaseId: ${{ needs.draft.outputs.id }}
           args: ${{ matrix.args }}
+      - name: Keep a trial build's installers
+        if: needs.draft.outputs.trial == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: sonar-app-${{ runner.os }}
+          path: |
+            target/release/bundle/*/*
+            target/universal-apple-darwin/release/bundle/*/*
+          if-no-files-found: error
 
   cli:
     needs: draft
-    if: needs.draft.outputs.id
+    if: needs.draft.outputs.id || needs.draft.outputs.trial == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -208,7 +222,15 @@ jobs:
             rm -f out/*.d out/*.pdb
           fi
           cp LICENSE README.md out/
+      - name: Keep a trial build's program
+        if: needs.draft.outputs.trial == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: sonar-cli-${{ matrix.target }}
+          path: out/*
+          if-no-files-found: error
       - name: Upload
+        if: needs.draft.outputs.id
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
