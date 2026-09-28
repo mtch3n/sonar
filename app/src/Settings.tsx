@@ -211,6 +211,27 @@ export default function Settings() {
             />
           </Group>
 
+          <Group
+            title="Search by meaning"
+            note="Finds files by what they're about, not only their words. The model runs on this computer; it's downloaded once."
+          >
+            <Row label="Search by meaning" hint="For the kinds of file set to Words and meaning">
+              <Switch
+                aria-label="Search by meaning"
+                checked={draft.meaning.enabled}
+                onCheckedChange={(enabled) => change({ ...draft, meaning: { ...draft.meaning, enabled } })}
+              />
+            </Row>
+            <Row label="Model" hint={modelHint(editor.models.find((m) => m.id === draft.meaning.model))}>
+              <Choice
+                label="Model"
+                value={draft.meaning.model}
+                items={editor.models.map((m) => ({ value: m.id, label: m.name }))}
+                onChange={(model) => change({ ...draft, meaning: { ...draft.meaning, model } })}
+              />
+            </Row>
+          </Group>
+
           <Group title="Files">
             <Row label="Code editor" hint="Opens projects, code, scripts and config files">
               <CommandField
@@ -299,6 +320,11 @@ export default function Settings() {
       </footer>
     </div>
   );
+}
+
+function modelHint(model: Editor["models"][number] | undefined): string | undefined {
+  if (!model) return undefined;
+  return model.downloaded ? model.description : `${model.description}. Downloads ${model.downloadMb} MB`;
 }
 
 function accentColor(accent: string, editor: Editor): string {

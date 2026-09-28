@@ -61,6 +61,7 @@ export type Settings = {
   search: { limit: number };
   files: { editor: string; terminal: string };
   index: { rescan_minutes: number; text_kb: number; kinds: Record<string, string> };
+  meaning: { enabled: boolean; model: string };
   updates: { check: boolean };
   plugins: Record<string, PluginSettings>;
 };
@@ -92,4 +93,6 @@ export type Editor = {
   problem: string | null;
   /** The kinds of file whose level can be chosen, and the levels each can have. */
   kinds: { kind: string; default: string; levels: string[] }[];
+  /** The models that can search by meaning. */
+  models: { id: string; name: string; description: string; downloadMb: number; downloaded: boolean }[];
 };

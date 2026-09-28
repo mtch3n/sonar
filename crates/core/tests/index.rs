@@ -1,6 +1,6 @@
 use std::{fs, io::Write, path::Path};
 
-use sonar_core::{Index, Kind, Level, Query, Rules, ScanOptions};
+use sonar_core::{Embedder, Index, Kind, Level, Query, Rules, ScanOptions};
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn limit(bytes: usize) -> ScanOptions {
@@ -242,6 +242,16 @@ fn moved_files_keep_their_text() {
     index.scan(&home, &rules, &options).unwrap();
     assert_eq!(find(&index, &home, "boiler"), ["lease.txt"]);
 
+    // Text the cache lost is read again.
+    drop(index);
+    fs::remove_file(tmp.path().join("cache.db")).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules, &options).unwrap();
+    assert_eq!(
+        lines(&index, &home, "boiler"),
+        [("lease.txt".to_owned(), Some("boiler repairs".to_owned()))]
+    );
+
     // The index can be rebuilt from scratch; the cache outlives it.
     drop(index);
     fs::remove_file(tmp.path().join("index.db")).unwrap();
@@ -320,4 +330,115 @@ fn search_inside_documents() {
     );
     assert_eq!(find(&index, &home, "tenancy kind:doc"), ["lease.docx"]);
     assert!(find(&index, &home, "zip").is_empty());
+}
+
+/// Understands a few topics: each is a dimension, and a text's vector says which
+/// topics its words belong to.
+struct Topics {
+    calls: usize,
+}
+
+const TOPICS: [&[&str]; 3] = [
+    &["photo", "photos", "picture", "pictures", "image"],
+    &["backup", "backs", "copy", "rsync", "sync"],
+    &["money", "invoice", "receipt", "paid", "payment", "發票"],
+];
+
+impl Embedder for Topics {
+    fn id(&self) -> &str {
+        "topics"
+    }
+
+    fn passages(&mut self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+        self.calls += texts.len();
+        Ok(texts.iter().map(|t| topics(t)).collect())
+    }
+
+    fn query(&mut self, text: &str) -> anyhow::Result<Vec<f32>> {
+        Ok(topics(text))
+    }
+
+    fn min_score(&self) -> f32 {
+        0.5
+    }
+}
+
+fn topics(text: &str) -> Vec<f32> {
+    let text = text.to_lowercase();
+    let mut v: Vec<f32> = TOPICS
+        .iter()
+        .map(|words| words.iter().filter(|w| text.contains(*w)).count() as f32)
+        .collect();
+    v.push(0.1);
+    let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+    v.iter().map(|x| x / norm).collect()
+}
+
+#[test]
+fn search_by_meaning() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(
+        &home,
+        "bin/nightly.sh",
+        "#!/bin/sh\nrsync -av ~/Pictures nas:/photos\n",
+    );
+    write(&home, "Documents/notes.md", "Lunch with Sam on Friday.\n");
+    write(&home, "Documents/2024 發票.txt", "");
+    write(&home, "Pictures/beach photo.jpg", "");
+
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    let mut options = ScanOptions::default();
+    options.levels.set(Kind::Image, Level::Meaning);
+    index.scan(&home, &rules, &options).unwrap();
+
+    let mut model = Topics { calls: 0 };
+    assert_eq!(index.pending_meaning("topics").unwrap().1, 2);
+    let stats = index.embed(&mut model, &mut |_| true).unwrap();
+    assert_eq!(stats.files, 2, "{stats:?}");
+    assert_eq!(index.pending_meaning("topics").unwrap(), (0, 0));
+    assert!(stats.names >= 4, "{stats:?}");
+    let calls = model.calls;
+    index.embed(&mut model, &mut |_| true).unwrap();
+    assert_eq!(model.calls, calls, "nothing is embedded twice");
+
+    let mut search = |input: &str| -> Vec<(String, Option<String>)> {
+        let query = Query::parse(input, &home).unwrap();
+        index
+            .search_with(&query, &mut model)
+            .unwrap()
+            .into_iter()
+            .map(|h| (h.name, h.line))
+            .collect()
+    };
+    // No file has these words, but the script is about them.
+    assert_eq!(
+        search("script that backs up my pictures")[0],
+        (
+            "nightly.sh".to_owned(),
+            Some("rsync -av ~/Pictures nas:/photos".to_owned())
+        )
+    );
+    // Names are searched by meaning too, in any language the model knows.
+    assert_eq!(search("payment records")[0].0, "2024 發票.txt");
+    // Filters apply to what's found by meaning.
+    assert!(search("backup of photos kind:doc").is_empty());
+    assert_eq!(search("photo image")[0].0, "beach photo.jpg");
+    // Short and exact queries are matched by words only.
+    assert!(search("\"backup\"").is_empty());
+}
+
+#[test]
+fn embedding_stops_when_asked() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(&home, "a.md", "photos");
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules, &ScanOptions::default()).unwrap();
+    let mut model = Topics { calls: 0 };
+    let stats = index.embed(&mut model, &mut |_| false).unwrap();
+    assert!(stats.stopped);
+    assert_eq!(model.calls, 0);
 }

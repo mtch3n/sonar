@@ -39,7 +39,7 @@ CREATE TRIGGER files_deleted AFTER DELETE ON files BEGIN
 END;
 ";
 
-const CACHE_VERSION: i64 = 1;
+const CACHE_VERSION: i64 = 2;
 
 /// What Sonar learned from each file's content, by its hash. It's kept in a file of
 /// its own, so it outlives the index when that is rebuilt, and entries no file has
@@ -52,6 +52,31 @@ CREATE TABLE cache.contents (
     text TEXT,
     unused_since INTEGER
 ) WITHOUT ROWID;
+-- Pieces of text by meaning: vectors of each chunk of the text with a hash.
+CREATE TABLE cache.vectors (
+    model TEXT NOT NULL,
+    hash BLOB NOT NULL,
+    chunk INTEGER NOT NULL,
+    start INTEGER NOT NULL,
+    end INTEGER NOT NULL,
+    vector BLOB NOT NULL,
+    PRIMARY KEY (model, hash, chunk)
+) WITHOUT ROWID;
+-- The text each model has embedded, and how it was cut into chunks.
+CREATE TABLE cache.embedded (
+    model TEXT NOT NULL,
+    hash BLOB NOT NULL,
+    policy TEXT NOT NULL,
+    PRIMARY KEY (model, hash)
+) WITHOUT ROWID;
+CREATE TABLE cache.names (
+    model TEXT NOT NULL,
+    name TEXT NOT NULL,
+    vector BLOB NOT NULL,
+    PRIMARY KEY (model, name)
+) WITHOUT ROWID;
+CREATE TABLE cache.vectors_version (version INTEGER NOT NULL);
+INSERT INTO cache.vectors_version VALUES (0);
 ";
 
 pub(crate) fn open(path: &Path) -> Result<Connection> {
@@ -61,6 +86,8 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
     let mut conn = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
     conn.pragma_update_and_check(None, "journal_mode", "WAL", |_| Ok(()))?;
     conn.pragma_update(None, "synchronous", "NORMAL")?;
+    // The app scans, embeds and searches on connections of their own.
+    conn.busy_timeout(std::time::Duration::from_secs(60))?;
 
     let cache = path.with_file_name("cache.db");
     conn.execute(
@@ -88,7 +115,13 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
     let version: i64 = conn.query_row("PRAGMA cache.user_version", [], |r| r.get(0))?;
     if version != CACHE_VERSION {
         let tx = conn.transaction()?;
-        tx.execute_batch("DROP TABLE IF EXISTS cache.contents;")?;
+        tx.execute_batch(
+            "DROP TABLE IF EXISTS cache.contents;
+             DROP TABLE IF EXISTS cache.vectors;
+             DROP TABLE IF EXISTS cache.embedded;
+             DROP TABLE IF EXISTS cache.names;
+             DROP TABLE IF EXISTS cache.vectors_version;",
+        )?;
         tx.execute_batch(CACHE_SCHEMA)?;
         tx.pragma_update(Some("cache"), "user_version", CACHE_VERSION)?;
         tx.commit()?;

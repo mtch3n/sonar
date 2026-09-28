@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, Statement, Transaction, params};
 use crate::{
     Kind, Level, Levels, Rules,
     hash::{self, Hash},
-    text,
+    meaning, text,
     words::words,
 };
 
@@ -202,6 +202,7 @@ fn forget_unused(tx: &Transaction) -> Result<()> {
         "DELETE FROM cache.contents WHERE unused_since < ?1",
         [now - KEEP_UNUSED_SECS],
     )?;
+    meaning::forget_unused(tx)?;
     Ok(())
 }
 
@@ -269,7 +270,9 @@ struct Writer<'t> {
     text_limit: usize,
 }
 
-type Found = (i64, String, Option<i64>, i64, i64, i64, bool);
+/// A file's row: its id, kind, size, times, level, whether it's outside projects,
+/// and whether the cache has its text, if it has any.
+type Found = (i64, String, Option<i64>, i64, i64, i64, bool, bool);
 
 impl<'t> Writer<'t> {
     fn new(
@@ -280,7 +283,8 @@ impl<'t> Writer<'t> {
     ) -> Result<Writer<'t>> {
         Ok(Writer {
             find: tx.prepare(
-                "SELECT id, kind, size, mtime_ns, ctime_ns, level, project_id IS NULL
+                "SELECT id, kind, size, mtime_ns, ctime_ns, level, project_id IS NULL,
+                        hash IS NULL OR hash IN (SELECT hash FROM cache.contents)
                  FROM files WHERE path = ?1",
             )?,
             insert: tx.prepare(
@@ -329,6 +333,7 @@ impl<'t> Writer<'t> {
                     r.get(4)?,
                     r.get(5)?,
                     r.get(6)?,
+                    r.get(7)?,
                 ))
             })
             .optional()?;
@@ -367,14 +372,17 @@ impl<'t> Writer<'t> {
             )?,
         };
         let unchanged = !self.reread
-            && found.is_some_and(|(_, kind, size, mtime_ns, ctime_ns, level, outside)| {
-                kind == row.kind.as_str()
-                    && size == row.size
-                    && mtime_ns == stamp.mtime_ns
-                    && ctime_ns == stamp.ctime_ns
-                    && level == row.level.as_int()
-                    && outside == row.project_id.is_none()
-            });
+            && found.is_some_and(
+                |(_, kind, size, mtime_ns, ctime_ns, level, outside, cached)| {
+                    cached
+                        && kind == row.kind.as_str()
+                        && size == row.size
+                        && mtime_ns == stamp.mtime_ns
+                        && ctime_ns == stamp.ctime_ns
+                        && level == row.level.as_int()
+                        && outside == row.project_id.is_none()
+                },
+            );
         if unchanged {
             return Ok(Some(id));
         }

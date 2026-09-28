@@ -8,6 +8,7 @@ mod host;
 mod hotkey;
 mod indexer;
 mod launcher;
+mod meaning;
 mod tray;
 mod updater;
 mod watcher;
@@ -21,6 +22,7 @@ use crate::{
     hotkey::Hotkey,
     indexer::{Indexer, Status},
     launcher::Launcher,
+    meaning::Meaning,
     tray::Tray,
 };
 
@@ -105,12 +107,34 @@ fn main() {
 
             #[cfg(target_os = "linux")]
             record_copies(&paths, &settings);
+            let meaning_settings = {
+                let settings = settings.clone();
+                move || {
+                    settings
+                        .read()
+                        .map(|s| s.meaning.clone())
+                        .unwrap_or_default()
+                }
+            };
+            let meaning = {
+                let tray = tray.clone();
+                let query = app.state::<Launcher>().query_model();
+                Meaning::start(paths.clone(), meaning_settings, query, move |status| {
+                    tray.show_meaning(&status)
+                })
+            };
+            app.manage(meaning.clone());
+            meaning.wake();
+
             let handle = app.handle().clone();
             let index_settings =
                 move || settings.read().map(|s| s.index.clone()).unwrap_or_default();
             app.manage(Indexer::start(paths, index_settings, move |status| {
                 if let Some(launcher) = handle.try_state::<Launcher>() {
                     launcher.set_indexing(matches!(status, Status::Indexing));
+                }
+                if matches!(status, Status::Ready { .. }) {
+                    meaning.wake();
                 }
                 tray.show_status(&status);
                 let _ = handle.emit("sonar://view", ());
@@ -197,7 +221,13 @@ fn reload(app: &AppHandle) {
         return;
     };
     let scan = launcher.current_settings().index.scan_options();
+    let meaning = launcher.current_settings().meaning;
     launcher.reload();
+    if launcher.current_settings().meaning != meaning
+        && let Some(worker) = app.try_state::<Meaning>()
+    {
+        worker.wake();
+    }
     // Files are indexed again at once, rather than at the next rescan.
     if launcher.current_settings().index.scan_options() != scan
         && let Some(indexer) = app.try_state::<Indexer>()

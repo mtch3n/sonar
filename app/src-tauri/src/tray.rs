@@ -13,7 +13,7 @@ use tauri::{
 
 use crate::{
     indexer::{Indexer, Status},
-    updater, window,
+    meaning, updater, window,
 };
 
 pub const CHECK_FOR_UPDATES: &str = "Check for updates";
@@ -63,6 +63,10 @@ impl Look {
 #[derive(Default)]
 struct Flags {
     indexing: bool,
+    /// What scanning and searching by meaning are up to, shown together.
+    index_text: String,
+    meaning_text: Option<String>,
+    embedding: bool,
     update_ready: bool,
     frame: usize,
 }
@@ -146,12 +150,48 @@ impl Tray {
             Status::Ready { files, at } => format!("{} files · updated {at}", thousands(*files)),
             Status::Failed(err) => format!("Indexing failed: {err}"),
         };
-        let _ = self.status.set_text(&text);
-        let _ = self.icon.set_tooltip(Some(&text));
         if let Ok(mut flags) = self.flags.lock() {
+            flags.index_text = text;
             flags.indexing = matches!(status, Status::Indexing);
         }
+        self.show_text();
         self.refresh();
+    }
+
+    pub fn show_meaning(&self, status: &meaning::Status) {
+        let text = match status {
+            meaning::Status::Off | meaning::Status::Ready => None,
+            meaning::Status::Downloading { name, mb } => {
+                Some(format!("Downloading the {name} model ({mb} MB)…"))
+            }
+            meaning::Status::Embedding { done, total } => Some(format!(
+                "Learning meaning: {} of {}",
+                thousands(*done),
+                thousands(*total)
+            )),
+            meaning::Status::Failed(err) => Some(format!("Search by meaning failed: {err}")),
+        };
+        if let Ok(mut flags) = self.flags.lock() {
+            flags.embedding = matches!(
+                status,
+                meaning::Status::Downloading { .. } | meaning::Status::Embedding { .. }
+            );
+            flags.meaning_text = text;
+        }
+        self.show_text();
+        self.refresh();
+    }
+
+    fn show_text(&self) {
+        let Ok(flags) = self.flags.lock() else {
+            return;
+        };
+        let text = match &flags.meaning_text {
+            Some(meaning) => format!("{} · {meaning}", flags.index_text),
+            None => flags.index_text.clone(),
+        };
+        let _ = self.status.set_text(&text);
+        let _ = self.icon.set_tooltip(Some(&text));
     }
 
     fn animate(&self) {
@@ -160,7 +200,7 @@ impl Tray {
             loop {
                 thread::sleep(FRAME);
                 let indexing = match tray.flags.lock() {
-                    Ok(mut flags) if flags.indexing => {
+                    Ok(mut flags) if flags.indexing || flags.embedding => {
                         flags.frame = (flags.frame + 1) % 3;
                         true
                     }
@@ -191,7 +231,7 @@ impl Tray {
 
     pub fn refresh(&self) {
         let look = match self.flags.lock() {
-            Ok(flags) if flags.indexing => Look::Indexing(flags.frame),
+            Ok(flags) if flags.indexing || flags.embedding => Look::Indexing(flags.frame),
             Ok(flags) if flags.update_ready => Look::Update,
             _ => Look::Idle,
         };
