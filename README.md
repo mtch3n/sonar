@@ -53,9 +53,17 @@ A folder with `.git`, `Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod` o
 
 ## Calculator
 
-Type arithmetic or a unit conversion, like `2^10`, `sqrt 2` or `5 km to miles`, and the answer shows above your files. Enter copies it. Sonar only calculates when the query has a digit and doesn't look like a date, so file searches such as `invoice 2024` are left alone. The calculator is [fend](https://github.com/printfn/fend).
+Type arithmetic or a unit conversion, like `2^10`, `sqrt 2` or `5 km to miles`, and the answer shows above your files. Enter copies it. Sonar only does arithmetic when the query has a digit and doesn't look like a date, so file searches such as `invoice 2024` are left alone. The calculator is [fend](https://github.com/printfn/fend).
 
 It converts currencies too: `100 usd to eur`, `$20 in yen`. Money without a target, like `100 usd` or `10 eur + 5 usd`, is shown in your own currency, which Sonar takes from your system's region and you can change in Settings. Ctrl + Enter copies just the number. Exchange rates come from [ExchangeRate-API](https://www.exchangerate-api.com) once a day and are kept for when you're offline; turn off Download exchange rates under the calculator in Settings to stop that.
+
+It knows time zones and dates as well:
+
+- `time in tokyo`, `tokyo time` or `now in london` shows the time there and how far ahead or behind you it is.
+- `3pm tokyo in taipei`, `15:30 utc to pst` or `9am new york to berlin` converts a time between places. Leave a place out and it's yours: `3pm tokyo` is that time in your zone, and `3pm in tokyo` is your 3pm there.
+- `today + 90 days`, `today + 3 weeks` or `2026-10-01 + 45 days` gives the date and its weekday, and `days until 2026-12-25` or `2026-12-25 - today` counts the days.
+
+Places are the cities time zones are named after, like Tokyo or New York, some other common names, like Beijing, Delhi, NYC or San Francisco, and abbreviations like UTC, GMT, EST, PST, CET, IST and JST. An abbreviation stands for one place and follows its daylight saving time, so `pst` in summer is shown as PDT; CST is US Central and IST is India. Enter copies the answer, and Ctrl + Enter copies it as `2026-09-28T14:00+08:00`, `2026-12-27` or a plain number of days.
 
 ## Browser
 

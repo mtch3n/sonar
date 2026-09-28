@@ -4,6 +4,7 @@
 
 pub mod browser;
 pub mod calculator;
+mod clock;
 pub mod currency;
 mod external;
 mod manifest;

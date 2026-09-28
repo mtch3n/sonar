@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    Action, Choice, Field, Item, Setting,
+    Action, Choice, Field, Item, Setting, clock,
     currency::{self, Rates},
 };
 
@@ -21,7 +21,7 @@ pub const ID: &str = "calculator";
 pub const CURRENCY: &str = "currency";
 pub const DOWNLOAD_RATES: &str = "rates";
 
-/// Arithmetic, units and currencies, answered as you type.
+/// Arithmetic, units, currencies, time zones and dates, answered as you type.
 pub struct Calculator {
     /// What amounts of money are converted to when the query doesn't say, by ISO code.
     pub home: String,
@@ -58,11 +58,15 @@ pub fn settings() -> Vec<Setting> {
 }
 
 impl Calculator {
-    /// The result of `query` as arithmetic, a unit conversion or a currency
-    /// conversion, like `2^10`, `5 km to miles` or `100 usd to eur`. Queries that are
+    /// The result of `query` as arithmetic, a unit conversion, a currency conversion,
+    /// a time in another place or a date, like `2^10`, `5 km to miles`,
+    /// `100 usd to eur`, `3pm tokyo in taipei` or `today + 90 days`. Queries that are
     /// most likely a file search give `None`.
     pub fn calculate(&self, query: &str) -> Option<Item> {
         let query = query.trim();
+        if let Some(item) = clock::answer(query, &jiff::Zoned::now()) {
+            return Some(item);
+        }
         if !query.contains(|c: char| c.is_ascii_digit()) || is_date(query) {
             return None;
         }
@@ -267,6 +271,15 @@ mod tests {
     }
 
     #[test]
+    fn answers_times_and_dates() {
+        assert!(value("time in tokyo").is_some_and(|v| v.ends_with("· Tokyo")));
+        assert!(
+            value("15:30 utc to pst").is_some_and(|v| v.ends_with("· PDT") || v.ends_with("· PST"))
+        );
+        assert!(value("today + 90 days").is_some());
+    }
+
+    #[test]
     fn groups_thousands() {
         assert_eq!(grouped(3176.5432, 2), "3,176.54");
         assert_eq!(grouped(1_234_567.0, 0), "1,234,567");
@@ -287,6 +300,10 @@ mod tests {
             "10 mb",
             "3 days",
             "kind:pdf",
+            "tokyo trip photos",
+            "london.pdf",
+            "report 2024",
+            "3pm meeting notes",
             "",
         ] {
             assert_eq!(value(query), None, "{query}");
