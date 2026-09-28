@@ -5634,6 +5634,8 @@ name = "sonar-app"
 version = "0.4.2"
 dependencies = [
  "anyhow",
+ "gdkx11",
+ "gtk",
  "jiff",
  "notify",
  "serde",
@@ -5716,6 +5718,7 @@ dependencies = [
 name = "sonar-plugins"
 version = "0.4.2"
 dependencies = [
+ "anyhow",
  "base64 0.23.1",
  "dirs 7.0.0",
  "fend-core",
@@ -5730,6 +5733,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sonar-apps",
+ "sonar-core",
+ "sonar-models",
  "sys-locale",
  "sysinfo",
  "tar",

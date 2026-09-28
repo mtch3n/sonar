@@ -1,9 +1,12 @@
 mod db;
 mod documents;
+mod dupes;
 mod hash;
 mod kind;
 mod level;
 mod meaning;
+mod media;
+mod process;
 mod query;
 mod rules;
 mod scan;
@@ -16,9 +19,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
+pub use dupes::{DEFAULT_DISTANCE, Group, Likeness, Wanted};
 pub use kind::Kind;
 pub use level::{Level, Levels};
 pub use meaning::{EmbedStats, Embedder};
+pub use process::{Fingerprint, Job, Output, ProcessOptions, ProcessStats, Processor};
 pub use query::{DEFAULT_LIMIT, ParseError, Query, Term, Within};
 pub use rules::Rules;
 pub use scan::{ScanOptions, ScanStats};
@@ -31,6 +36,8 @@ pub struct Paths {
     pub db: PathBuf,
     /// Where the models that search by meaning are downloaded.
     pub models: PathBuf,
+    /// Frames of videos, taken for processors.
+    pub frames: PathBuf,
     /// Folders Sonar writes for the plugins it ships with.
     pub bundled: PathBuf,
     pub rules: PathBuf,
@@ -51,6 +58,7 @@ impl Paths {
             home,
             db: data.join("sonar").join("index.db"),
             models: data.join("sonar").join("models"),
+            frames: data.join("sonar").join("frames"),
             bundled: data.join("sonar").join("bundled"),
             rules: config.join("ignore"),
             settings: config.join("settings.toml"),
@@ -128,6 +136,27 @@ impl Index {
     /// covers.
     pub fn forget(&mut self, path: &Path) -> Result<u64> {
         scan::forget(&mut self.conn, path)
+    }
+
+    /// Has `processor` look at the files of its kinds it hasn't seen, and indexes
+    /// what it says with them. `progress` hears how it's going, and stops it by
+    /// returning false.
+    pub fn process(
+        &mut self,
+        processor: &mut dyn Processor,
+        options: &ProcessOptions,
+        progress: &mut dyn FnMut(&ProcessStats) -> bool,
+    ) -> Result<ProcessStats> {
+        let stats = process::process(&mut self.conn, processor, options, progress)?;
+        process::forget_frames(&self.conn, options.frames)?;
+        Ok(stats)
+    }
+
+    /// Groups of files that are copies of each other, or look like it, among those
+    /// `query`'s filters allow, most space wasted first.
+    pub fn duplicates(&self, query: &Query, wanted: Wanted) -> Result<Vec<Group>> {
+        let (filters, args) = search::filters(query);
+        dupes::groups(&self.conn, wanted, &filters, &args)
     }
 
     /// How many names and files model `model` has yet to embed.

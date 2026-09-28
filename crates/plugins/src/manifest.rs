@@ -21,6 +21,8 @@ pub struct Manifest {
     pub dir: PathBuf,
     pub name: String,
     pub description: Option<String>,
+    /// The program that answers searches, and its arguments; empty for a plugin that
+    /// only processes files.
     pub command: Vec<String>,
     pub keyword: Option<String>,
     /// The icon as a `data:` URL.
@@ -31,6 +33,33 @@ pub struct Manifest {
     pub requires: Vec<Requirement>,
     /// The systems the plugin works on; empty means all of them.
     pub platforms: Vec<Platform>,
+    /// How the plugin processes files, if it does.
+    pub process: Option<Process>,
+}
+
+/// `[process]`: a plugin that looks at files as they're indexed and says what it
+/// learned, like a description of a photo or a fingerprint of a video.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Process {
+    /// The kinds of file it's given, like `image` and `video`.
+    pub kinds: Vec<String>,
+    /// The program that processes, and its arguments.
+    pub command: Vec<String>,
+    /// Changes when the plugin would say something different, so files are looked
+    /// at again.
+    #[serde(default = "first_version")]
+    pub version: String,
+    /// Frames of each video it wants, instead of the video itself.
+    #[serde(default)]
+    pub frames: usize,
+    /// The key of the plugin's own setting that names the model it uses, as
+    /// `provider:model`; Sonar sends that provider's address and key with each file.
+    pub model: Option<String>,
+}
+
+fn first_version() -> String {
+    "1".into()
 }
 
 /// An operating system a plugin can say it works on.
@@ -87,6 +116,7 @@ pub struct Requirement {
 struct Raw {
     name: String,
     description: Option<String>,
+    #[serde(default)]
     command: Vec<String>,
     keyword: Option<String>,
     icon: Option<PathBuf>,
@@ -98,6 +128,7 @@ struct Raw {
     requires: Vec<Requirement>,
     #[serde(default)]
     platforms: Vec<Platform>,
+    process: Option<Process>,
 }
 
 /// Every plugin in `dir` that works on this system, one per folder, sorted by id,
@@ -128,8 +159,17 @@ impl Manifest {
     pub fn read(dir: &Path) -> Result<Manifest, String> {
         let text = fs::read_to_string(dir.join(FILE)).map_err(|err| err.to_string())?;
         let raw: Raw = toml::from_str(&text).map_err(|err| err.message().to_owned())?;
-        if raw.command.first().is_none_or(|program| program.is_empty()) {
+        let runs = |command: &[String]| command.first().is_some_and(|p| !p.is_empty());
+        if raw.process.is_none() && !runs(&raw.command) {
             return Err("`command` needs at least the program to run".into());
+        }
+        if let Some(process) = &raw.process {
+            if !runs(&process.command) {
+                return Err("`process.command` needs at least the program to run".into());
+            }
+            if process.kinds.is_empty() {
+                return Err("`process.kinds` needs the kinds of file to process".into());
+            }
         }
         if let Some(keyword) = &raw.keyword {
             check_keyword(keyword)?;
@@ -151,6 +191,7 @@ impl Manifest {
             position: raw.position,
             requires: raw.requires,
             platforms: raw.platforms,
+            process: raw.process,
         })
     }
 
@@ -176,10 +217,20 @@ impl Manifest {
             .map(|requirement| format!("Needs {}. {}", requirement.program, requirement.help))
     }
 
-    /// The program to start. A path with a folder in it is relative to the plugin
-    /// folder; a bare name is looked up on `PATH`.
+    /// Whether the plugin answers searches, rather than only processing files.
+    pub fn searches(&self) -> bool {
+        !self.command.is_empty()
+    }
+
+    /// The program to start for searches.
     pub(crate) fn program(&self) -> PathBuf {
-        let program = Path::new(&self.command[0]);
+        self.resolve(&self.command[0])
+    }
+
+    /// A program named in `plugin.toml`. A path with a folder in it is relative to
+    /// the plugin folder; a bare name is looked up on `PATH`.
+    pub(crate) fn resolve(&self, program: &str) -> PathBuf {
+        let program = Path::new(program);
         if program.components().count() > 1 {
             self.dir.join(program)
         } else {

@@ -1,6 +1,9 @@
 use std::{fs, io::Write, path::Path};
 
-use sonar_core::{Embedder, Index, Kind, Level, Query, Rules, ScanOptions};
+use sonar_core::{
+    Embedder, Fingerprint, Index, Job, Kind, Level, Output, ProcessOptions, Processor, Query,
+    Rules, ScanOptions,
+};
 use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn limit(bytes: usize) -> ScanOptions {
@@ -519,4 +522,279 @@ fn private_folders_stay_local() {
         (2, 2),
         "a local model reads everything"
     );
+}
+
+/// Says what's in a picture by its file's first line, and fails on empty files.
+struct Looker {
+    version: &'static str,
+    seen: Vec<String>,
+    frames: usize,
+}
+
+impl Processor for Looker {
+    fn id(&self) -> &str {
+        "looker"
+    }
+    fn version(&self) -> &str {
+        self.version
+    }
+    fn kinds(&self) -> &[Kind] {
+        &[Kind::Image, Kind::Video]
+    }
+    fn frames(&self) -> usize {
+        self.frames
+    }
+    fn is_local(&self) -> bool {
+        true
+    }
+    fn process(&mut self, job: &Job) -> anyhow::Result<Output> {
+        self.seen
+            .push(job.path.file_name().unwrap().to_string_lossy().into_owned());
+        if job.kind == Kind::Video {
+            assert_eq!(job.frames.len(), self.frames);
+            assert!(job.duration.unwrap() > 1.0);
+            return Ok(Output {
+                fingerprint: Some(Fingerprint {
+                    algo: "test".into(),
+                    bits: 42,
+                }),
+                ..Output::default()
+            });
+        }
+        let text = fs::read_to_string(job.path)?;
+        let first = text.lines().next().filter(|l| !l.is_empty());
+        let first = first.ok_or_else(|| anyhow::anyhow!("nothing to see"))?;
+        Ok(Output {
+            text: Some(format!("A picture of {first}")),
+            tags: vec!["photo".into(), first.to_owned()],
+            labels: Vec::new(),
+            fingerprint: None,
+        })
+    }
+}
+
+#[test]
+fn processors_make_pictures_searchable() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(&home, "Pictures/IMG_0001.jpg", "lighthouse\n");
+    write(&home, "Pictures/IMG_0002.jpg", "");
+    write(&home, "Backup/copy.jpg", "lighthouse\n");
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    let mut options = ScanOptions::default();
+    options.levels.set(Kind::Image, Level::Meaning);
+    index.scan(&home, &rules, &options).unwrap();
+    assert!(find(&index, &home, "lighthouse").is_empty());
+
+    let frames = tmp.path().join("frames");
+    let process = ProcessOptions {
+        root: &home,
+        frames: &frames,
+        private: &[],
+    };
+    let mut looker = Looker {
+        version: "1",
+        seen: Vec::new(),
+        frames: 4,
+    };
+    let stats = index.process(&mut looker, &process, &mut |_| true).unwrap();
+    assert_eq!((stats.done, stats.failed), (1, 1), "{stats:?}");
+    assert_eq!(
+        looker.seen.len(),
+        2,
+        "the copy isn't looked at again: {:?}",
+        looker.seen
+    );
+    let mut found = find(&index, &home, "lighthouse");
+    found.sort();
+    assert_eq!(found, ["IMG_0001.jpg", "copy.jpg"]);
+
+    // What it said is searched by meaning too.
+    let mut model = Topics { calls: 0 };
+    index.embed(&mut model, &[], &mut |_| true).unwrap();
+    let query = Query::parse("picture photo", &home).unwrap();
+    let hits = index.search_with(&query, &mut model).unwrap();
+    assert!(hits.iter().any(|h| h.name == "IMG_0001.jpg"), "{hits:?}");
+
+    // Files it has seen aren't looked at again, until it changes.
+    index.process(&mut looker, &process, &mut |_| true).unwrap();
+    assert_eq!(looker.seen.len(), 2);
+    looker.version = "2";
+    index.process(&mut looker, &process, &mut |_| true).unwrap();
+    assert_eq!(looker.seen.len(), 4);
+
+    // Rescanning keeps what it said.
+    index.scan(&home, &rules, &options).unwrap();
+    assert_eq!(find(&index, &home, "lighthouse").len(), 2);
+}
+
+#[test]
+fn processors_get_frames_of_videos() {
+    let ffmpeg = std::process::Command::new("ffmpeg")
+        .arg("-version")
+        .output();
+    if ffmpeg.is_err() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(home.join("Videos")).unwrap();
+    let made = std::process::Command::new("ffmpeg")
+        .args([
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=duration=3:size=160x120:rate=10",
+        ])
+        .arg(home.join("Videos/clip.mp4"))
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    let mut options = ScanOptions::default();
+    options.levels.set(Kind::Video, Level::Text);
+    index.scan(&home, &rules, &options).unwrap();
+    let frames = tmp.path().join("frames");
+    let mut looker = Looker {
+        version: "1",
+        seen: Vec::new(),
+        frames: 4,
+    };
+    let process = ProcessOptions {
+        root: &home,
+        frames: &frames,
+        private: &[],
+    };
+    let stats = index.process(&mut looker, &process, &mut |_| true).unwrap();
+    assert_eq!(stats.done, 1, "{stats:?}");
+    assert_eq!(
+        fs::read_dir(&frames).unwrap().count(),
+        1,
+        "frames kept by hash"
+    );
+
+    fs::remove_file(home.join("Videos/clip.mp4")).unwrap();
+    index.scan(&home, &rules, &options).unwrap();
+    index.process(&mut looker, &process, &mut |_| true).unwrap();
+    assert_eq!(
+        fs::read_dir(&frames).unwrap().count(),
+        0,
+        "frames of gone videos go"
+    );
+}
+
+/// Fingerprints pictures by their text: "a" and "b" look alike, "z" doesn't.
+struct Printer;
+
+impl Processor for Printer {
+    fn id(&self) -> &str {
+        "printer"
+    }
+    fn version(&self) -> &str {
+        "1"
+    }
+    fn kinds(&self) -> &[Kind] {
+        &[Kind::Image]
+    }
+    fn frames(&self) -> usize {
+        0
+    }
+    fn is_local(&self) -> bool {
+        true
+    }
+    fn process(&mut self, job: &Job) -> anyhow::Result<Output> {
+        let bits = match fs::read_to_string(job.path)?.chars().next() {
+            Some('a') => 0b0000,
+            Some('b') => 0b0011,
+            _ => u64::MAX,
+        };
+        Ok(Output {
+            fingerprint: Some(Fingerprint {
+                algo: "test".into(),
+                bits,
+            }),
+            ..Output::default()
+        })
+    }
+}
+
+#[test]
+fn duplicates_and_look_alikes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    let big = "x".repeat(20_000);
+    write(&home, "Documents/report.pdf", &big);
+    write(&home, "Downloads/report (1).pdf", &big);
+    write(&home, "Downloads/other.pdf", &"y".repeat(20_000));
+    write(&home, "Documents/notes.txt", "draft one");
+    write(&home, "Documents/notes copy.txt", "draft two");
+    write(&home, "Pictures/a.jpg", &format!("a{}", "1".repeat(20_000)));
+    write(&home, "Pictures/b.jpg", &format!("b{}", "2".repeat(20_001)));
+    write(&home, "Pictures/z.jpg", &format!("z{}", "3".repeat(20_002)));
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    let mut options = ScanOptions::default();
+    options.levels.set(Kind::Image, Level::Text);
+    index.scan(&home, &rules, &options).unwrap();
+    let frames = tmp.path().join("frames");
+    let process = ProcessOptions {
+        root: &home,
+        frames: &frames,
+        private: &[],
+    };
+    index
+        .process(&mut Printer, &process, &mut |_| true)
+        .unwrap();
+
+    let groups = |input: &str| -> Vec<(String, Vec<String>)> {
+        let query = Query::parse(input, &home).unwrap();
+        index
+            .search(&query)
+            .unwrap()
+            .into_iter()
+            .map(|h| (h.name, h.line.into_iter().collect()))
+            .collect()
+    };
+    let same = groups("dupes:same");
+    assert_eq!(same.len(), 2, "{same:?}");
+    assert!(
+        same[0].1[0].starts_with("Same content · 2 files · 19.5 KB spare"),
+        "{same:?}"
+    );
+    assert_eq!(same[1].1[0], format!("Copy of {}", same[0].0));
+
+    let looks = groups("dupes:looks");
+    let mut names: Vec<&str> = looks.iter().map(|(n, _)| n.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["a.jpg", "b.jpg"], "{looks:?}");
+    assert!(
+        groups("dupes:looks<1").is_empty(),
+        "a and b differ in 2 bits"
+    );
+
+    let named = groups("dupes:names");
+    let mut names: Vec<&str> = named.iter().map(|(n, _)| n.as_str()).collect();
+    names.sort();
+    assert_eq!(
+        names,
+        ["notes copy.txt", "notes.txt"],
+        "report (1) is an exact copy"
+    );
+
+    assert_eq!(groups("dupes: kind:image").len(), 2);
+    let similar = groups("similar:~/Pictures/a.jpg");
+    assert_eq!(
+        similar,
+        [(
+            "b.jpg".to_owned(),
+            vec!["Looks alike: 2 of 64 bits apart".to_owned()]
+        )]
+    );
+    let copies = groups("similar:~/Documents/report.pdf");
+    assert_eq!(copies[0].0, "report (1).pdf");
+    assert!(Query::parse("dupes:everything", &home).is_err());
 }
