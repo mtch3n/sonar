@@ -21,6 +21,11 @@ struct Cli {
 enum Command {
     #[command(about = "Scan your home folder and update the index")]
     Index,
+    #[command(about = "Read and learn files or folders again, then update the index")]
+    Reindex {
+        #[arg(required = true, help = "Files or folders to read again")]
+        paths: Vec<std::path::PathBuf>,
+    },
     #[command(about = "Search the index", visible_alias = "s", after_help = SYNTAX)]
     Search {
         #[arg(help = "Words and filters, e.g. `invoice kind:pdf modified:<30d`")]
@@ -50,6 +55,21 @@ fn main() -> Result<()> {
     match Cli::parse().command {
         Command::Index => {
             let (paths, mut index) = open()?;
+            run_index(&mut index, &paths)
+        }
+        Command::Reindex { paths: chosen } => {
+            let (paths, mut index) = open()?;
+            for path in &chosen {
+                let path = std::path::absolute(path)?;
+                let files = index.forget(&path)?;
+                if files == 0 {
+                    bail!("{} isn't in the index", path.display());
+                }
+                println!(
+                    "Reading {files} files under {} again",
+                    tilde(&path.to_string_lossy(), &paths.home)
+                );
+            }
             run_index(&mut index, &paths)
         }
         Command::Search { query } => {

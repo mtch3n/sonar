@@ -30,7 +30,7 @@ The builds aren't code-signed yet. On macOS, right-click the app and choose Open
 
 To use other keys, change `shortcut` in the [settings](#settings).
 
-In the search bar, ↑ and ↓ move, Enter opens the file, Ctrl + Enter (⌘ + Enter on macOS) shows it in its folder, or opens a folder or project in your terminal, and Esc closes. The bottom of the bar shows what Enter and Ctrl + Enter do for the selected result.
+In the search bar, ↑ and ↓ move, Enter opens the file, Ctrl + Enter (⌘ + Enter on macOS) shows it in its folder, or opens a folder or project in your terminal, Ctrl + K (⌘ + K) lists everything you can do with the selected result, and Esc closes. The bottom of the bar shows what Enter and Ctrl + Enter do for the selected result.
 
 ## Search
 
@@ -174,7 +174,7 @@ Sonar remembers what it read from each file by a hash of its content, in `cache.
 
 Sonar itself only goes online to check GitHub for updates, to download the model that searches by meaning when you turn that on, to download exchange rates once a day (turn off Download exchange rates under the calculator in Settings to stop that) and, when you type `plugins`, to list and download plugins.
 
-The app watches the folders it indexes and picks up new, renamed, changed and deleted files a second or so after they settle; a folder that never stops changing is rescanned at least every ten seconds. On Linux it watches each indexed folder, so a home with more folders than `fs.inotify.max_user_watches` allows stops watching and says so on the terminal. Either way it also rescans everything every five minutes, or as often as `index.rescan_minutes` says, to catch anything the watch missed. To rescan now, use Reindex now in the tray menu or run `sonar index`, which also learns the meaning of what it found when searching by meaning is on.
+The app watches the folders it indexes and picks up new, renamed, changed and deleted files a second or so after they settle; a folder that never stops changing is rescanned at least every ten seconds. On Linux it watches each indexed folder, so a home with more folders than `fs.inotify.max_user_watches` allows stops watching and says so on the terminal. Either way it also rescans everything every five minutes, or as often as `index.rescan_minutes` says, to catch anything the watch missed. To rescan now, use Reindex now in the tray menu or run `sonar index`. To read a file or folder again from scratch, rather than trust what Sonar remembers of it, choose Read again from its actions (Ctrl + K) or run `sonar reindex` with its path. Both also learn the meaning of what they read when searching by meaning is on.
 
 ## Updates
 
@@ -186,6 +186,7 @@ The command-line tool updates itself with `sonar update`.
 
 ```sh
 sonar index
+sonar reindex ~/Documents/scans    # read and learn a file or folder again
 sonar s invoice kind:pdf
 sonar s 'kind:image modified:<7d'
 sonar s --help

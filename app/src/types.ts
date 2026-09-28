@@ -8,7 +8,12 @@ export type Row = {
   image: string | null;
   action: string;
   alt: string | null;
+  /** Further actions, listed with Ctrl + K. */
+  more: string[];
 };
+
+/** Which of a row's actions to take. */
+export type Choice = "action" | "alt" | { more: number };
 
 /** The results from one source, like the file index or a plugin. */
 export type Section = {

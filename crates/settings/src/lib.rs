@@ -380,7 +380,14 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
     let marketplaces: Array = settings.marketplaces.iter().map(String::as_str).collect();
     // A file from an older Sonar may lack a newer section; add it as a [section]
     // rather than letting it become an inline table.
-    for name in ["appearance", "search", "files", "index", "updates"] {
+    for name in [
+        "appearance",
+        "search",
+        "files",
+        "index",
+        "meaning",
+        "updates",
+    ] {
         if !doc.contains_table(name) {
             doc.insert(name, Item::Table(Table::new()));
         }
@@ -831,7 +838,12 @@ mod tests {
         let path = tmp.path().join("settings.toml");
         let template = template();
         let (before, rest) = template.split_once("[files]").unwrap();
-        let old = format!("{before}{}", &rest[rest.find("[index]").unwrap()..]);
+        let rest = &rest[rest.find("[index]").unwrap()..];
+        let (index, rest) = rest.split_once("[meaning]").unwrap();
+        let old = format!(
+            "{before}{index}{}",
+            &rest[rest.find("[updates]").unwrap()..]
+        );
         assert!(!old.contains("[files]"));
         fs::write(&path, old).unwrap();
         let mut settings = Settings::default();
@@ -839,6 +851,7 @@ mod tests {
         save(&path, &settings).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("[files]\neditor = \"subl\""), "{text}");
+        assert!(!text.contains("meaning = {"), "{text}");
         assert!(text.contains("# color of the selection"), "{text}");
         assert_eq!(Settings::parse(&text).unwrap(), settings);
     }
