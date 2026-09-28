@@ -6,6 +6,8 @@ use std::{
 
 use sonar_core::{Index, Paths, Rules};
 
+use crate::watcher::Watcher;
+
 pub enum Status {
     Indexing,
     Ready { files: u64, at: String },
@@ -17,19 +19,27 @@ pub struct Indexer {
 }
 
 impl Indexer {
-    /// Scans now, then again every `interval()`, which is asked after each scan so a
-    /// changed setting applies from the next wait.
+    /// Scans now, then again soon after files change, and every `interval()` in case
+    /// a change went unseen. `interval()` is asked after each scan so a changed
+    /// setting applies from the next wait.
     pub fn start(
         paths: Paths,
         interval: impl Fn() -> Duration + Send + 'static,
         on_status: impl Fn(Status) + Send + 'static,
     ) -> Indexer {
         let (wake, woken) = mpsc::channel();
+        let rescan = wake.clone();
         thread::spawn(move || {
             let mut index = match Index::open(&paths.db) {
                 Ok(index) => index,
                 Err(err) => return on_status(Status::Failed(format!("{err:#}"))),
             };
+            let data = paths.db.parent().unwrap_or(&paths.db).to_owned();
+            let watcher = Watcher::start(paths.home.clone(), data, move || {
+                let _ = rescan.send(());
+            });
+            // Watch what the last run indexed while this first scan runs.
+            watcher.follow(index.folders().unwrap_or_default());
             loop {
                 on_status(Status::Indexing);
                 let scanned = Rules::load(&paths.rules, &paths.home)
@@ -41,6 +51,9 @@ impl Indexer {
                     },
                     Err(err) => Status::Failed(format!("{err:#}")),
                 });
+                if let Ok(folders) = index.folders() {
+                    watcher.follow(folders);
+                }
                 match woken.recv_timeout(interval()) {
                     Ok(()) | Err(RecvTimeoutError::Timeout) => while woken.try_recv().is_ok() {},
                     Err(RecvTimeoutError::Disconnected) => return,

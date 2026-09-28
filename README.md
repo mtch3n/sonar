@@ -102,7 +102,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `search.limit` | `20` | results to find when the query has no `limit:` |
 | `files.editor` | empty | the command that opens projects, code, scripts and config files, like `code`, `zed` or `open -a 'Visual Studio Code'`; empty opens them in their default app. Settings lists the editors it finds |
 | `files.terminal` | empty | the terminal Ctrl + Enter opens folders and projects in, like `ptyxis` or `open -a iTerm`; empty uses the first one found. Settings lists the terminals it finds |
-| `index.rescan_minutes` | `5` | how often to look for new and changed files |
+| `index.rescan_minutes` | `5` | how often to rescan everything, for changes the watch missed |
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
 | `plugins.calculator.currency` | your region's | the currency amounts like `100 usd` are shown in, like `"EUR"` |
@@ -124,7 +124,7 @@ Sonar records names, sizes and dates, and up to 64 KB of text from plain-text fi
 
 Sonar itself only goes online to check GitHub for updates, to download exchange rates once a day (turn off Download exchange rates under the calculator in Settings to stop that) and, when you type `plugins`, to list and download plugins.
 
-The app rescans every five minutes, or as often as `index.rescan_minutes` says. To rescan now, use Reindex now in the tray menu or run `sonar index`.
+The app watches the folders it indexes and picks up new, renamed, changed and deleted files a second or so after they settle; a folder that never stops changing is rescanned at least every ten seconds. On Linux it watches each indexed folder, so a home with more folders than `fs.inotify.max_user_watches` allows stops watching and says so on the terminal. Either way it also rescans everything every five minutes, or as often as `index.rescan_minutes` says, to catch anything the watch missed. To rescan now, use Reindex now in the tray menu or run `sonar index`.
 
 ## Updates
 

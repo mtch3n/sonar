@@ -9,6 +9,7 @@ mod rates;
 mod settings;
 mod tray;
 mod updater;
+mod watcher;
 mod window;
 
 use sonar_core::Paths;

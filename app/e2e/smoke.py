@@ -236,6 +236,26 @@ def check_search_window(driver: WebDriver):
     print("ok  Chrome bookmarks and history")
 
 
+def check_live_index(driver: WebDriver, home: Path):
+    """Files show up soon after they change, long before the five-minute rescan."""
+
+    def appears(query: str, title: str):
+        # Results don't refresh when the index does, so search again each time.
+        def found():
+            driver.type("input[aria-label='Search']", query)
+            time.sleep(0.3)
+            return any(row["title"] == title for row in driver.run(ROWS))
+
+        wait_for(found, 15, f"{title} to show up for {query!r}")
+
+    note = home / "Documents" / "quokka-sightings.txt"
+    note.write_text("seen by the lake\n")
+    appears("quokka", "quokka-sightings.txt")
+    note.rename(note.with_name("wombat-sightings.txt"))
+    appears("wombat", "wombat-sightings.txt")
+    print("ok  new and renamed files show up within seconds")
+
+
 def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Path):
     # Asking the running Sonar, as a desktop shortcut would, opens its Settings window.
     subprocess.run([str(app), "--settings"], env=env, timeout=15, check=True)
@@ -308,6 +328,7 @@ def main():
     driver = WebDriver(app, env, log)
     try:
         check_search_window(driver)
+        check_live_index(driver, root / "home")
         check_settings_window(driver, app, env, root / "home" / ".config" / "sonar" / "settings.toml")
     except BaseException:
         print(f"failed; Sonar's home folder and the driver log are in {root}")

@@ -515,7 +515,7 @@ editor = ""         # opens projects and code, like "code" or "zed"; empty uses 
 terminal = ""       # opens folders, like "ptyxis" or "open -a iTerm"; empty uses the first found
 
 [index]
-rescan_minutes = 5  # how often to look for new and changed files
+rescan_minutes = 5  # how often to rescan everything, for changes the watch missed
 
 [updates]
 check = true        # look for new versions of Sonar on GitHub

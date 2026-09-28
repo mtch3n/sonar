@@ -101,6 +101,33 @@ fn scan_and_search() {
 }
 
 #[test]
+fn folders_are_the_ones_scanned() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    for file in [
+        "Documents/taxes/receipt.png",
+        ".cache/junk.txt",
+        "app/Cargo.toml",
+        "app/src/main.rs",
+        "app/target/debug/build.log",
+        "Tool.app/Contents/Info.plist",
+    ] {
+        touch(&home, file);
+    }
+    fs::create_dir(home.join("app/.git")).unwrap();
+    fs::write(home.join("app/.gitignore"), "target/\n").unwrap();
+
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules).unwrap();
+
+    let mut folders = index.folders().unwrap();
+    folders.sort();
+    let expected = ["Documents", "Documents/taxes", "app", "app/src"].map(|f| home.join(f));
+    assert_eq!(folders, expected);
+}
+
+#[test]
 fn search_inside_files() {
     let tmp = tempfile::tempdir().unwrap();
     let home = tmp.path().join("home");
