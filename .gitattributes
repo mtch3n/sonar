@@ -1,0 +1,2 @@
+# Test fixtures are exact bytes; converting line endings on Windows breaks PDFs.
+*.pdf binary
