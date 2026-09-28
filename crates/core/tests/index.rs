@@ -1,6 +1,7 @@
-use std::{fs, path::Path};
+use std::{fs, io::Write, path::Path};
 
 use sonar_core::{Index, Query, Rules};
+use zip::{ZipWriter, write::SimpleFileOptions};
 
 fn touch(root: &Path, relative: &str) {
     let path = root.join(relative);
@@ -12,6 +13,24 @@ fn write(root: &Path, relative: &str, text: &str) {
     let path = root.join(relative);
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, text).unwrap();
+}
+
+fn docx(root: &Path, relative: &str, paragraphs: &[&str]) {
+    let body: String = paragraphs
+        .iter()
+        .map(|p| format!("<w:p><w:r><w:t>{p}</w:t></w:r></w:p>"))
+        .collect();
+    let path = root.join(relative);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let mut zip = ZipWriter::new(fs::File::create(path).unwrap());
+    zip.start_file("word/document.xml", SimpleFileOptions::default())
+        .unwrap();
+    write!(
+        zip,
+        r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}</w:body></w:document>"#
+    )
+    .unwrap();
+    zip.finish().unwrap();
 }
 
 fn lines(index: &Index, home: &Path, input: &str) -> Vec<(String, Option<String>)> {
@@ -137,4 +156,49 @@ fn search_inside_files() {
     index.scan(&home, &rules).unwrap();
     assert_eq!(find(&index, &home, "dentist"), ["notes.md"]);
     assert_eq!(find(&index, &home, "budget"), ["budget.txt"]);
+}
+
+#[test]
+fn search_inside_documents() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    fs::create_dir_all(home.join("Documents")).unwrap();
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/minutes.pdf"),
+        home.join("Documents/minutes.pdf"),
+    )
+    .unwrap();
+    docx(
+        &home,
+        "Documents/lease.docx",
+        &[
+            "Tenancy agreement",
+            "The landlord repairs the boiler within a week.",
+        ],
+    );
+    docx(&home, "app/docs/design.docx", &["boiler"]);
+    write(&home, "app/Cargo.toml", "");
+    write(&home, "Documents/broken.docx", "not a zip");
+
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules).unwrap();
+
+    let line = |text: &str| Some(text.to_owned());
+    assert_eq!(
+        lines(&index, &home, "treasurer"),
+        [(
+            "minutes.pdf".to_owned(),
+            line("The treasurer presented the audit")
+        )]
+    );
+    assert_eq!(
+        lines(&index, &home, "boiler"),
+        [(
+            "lease.docx".to_owned(),
+            line("The landlord repairs the boiler within a week.")
+        )]
+    );
+    assert_eq!(find(&index, &home, "tenancy kind:doc"), ["lease.docx"]);
+    assert!(find(&index, &home, "zip").is_empty());
 }

@@ -1,4 +1,5 @@
 mod db;
+mod documents;
 mod kind;
 mod query;
 mod rules;

@@ -151,7 +151,13 @@ pub(crate) fn scan(conn: &mut Connection, root: &Path, rules: &Rules) -> Result<
                         project_id,
                         dirs: &dirs,
                     },
-                    || if readable { text::read(path) } else { None },
+                    || {
+                        if readable {
+                            text::read(path, &ext)
+                        } else {
+                            None
+                        }
+                    },
                 )?;
                 stats.files += 1;
             }

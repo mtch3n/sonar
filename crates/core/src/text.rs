@@ -1,11 +1,11 @@
-//! The text of plain-text files, so searches can match what's inside them.
+//! The text of files, so searches can match what's inside them.
 
 use std::{fs::File, io::Read, path::Path};
 
-use crate::{Kind, words::words};
+use crate::{Kind, documents, words::words};
 
 /// How much of a file is read and kept in the index.
-const LIMIT: u64 = 64 * 1024;
+pub(crate) const LIMIT: u64 = 64 * 1024;
 /// How long a matching line may be before it's shortened.
 const LINE_CHARS: usize = 160;
 /// Words kept before the first match when a line is shortened.
@@ -13,18 +13,29 @@ const LEAD_WORDS: usize = 3;
 
 const PLAIN_EXTS: &[&str] = &["txt", "md", "markdown", "rst", "org", "tex", "csv", "tsv"];
 
-/// Whether files of this kind and extension are plain text worth reading. Keys and
-/// certificates never are.
+/// Whether files of this kind and extension have text worth reading. Keys and
+/// certificates never do.
 pub(crate) fn is_readable(kind: Kind, ext: &str) -> bool {
     match kind {
         Kind::Script | Kind::Config => true,
-        Kind::Doc | Kind::Sheet => PLAIN_EXTS.contains(&ext),
+        Kind::Pdf | Kind::Doc | Kind::Sheet | Kind::Slides => {
+            PLAIN_EXTS.contains(&ext) || documents::EXTS.contains(&ext)
+        }
         _ => false,
     }
 }
 
+/// The start of a file's text, or `None` when there is none.
+pub(crate) fn read(path: &Path, ext: &str) -> Option<String> {
+    if documents::EXTS.contains(&ext) {
+        documents::read(path, ext)
+    } else {
+        read_plain(path)
+    }
+}
+
 /// The start of a file as text, or `None` when it's empty or not UTF-8.
-pub(crate) fn read(path: &Path) -> Option<String> {
+fn read_plain(path: &Path) -> Option<String> {
     let mut bytes = Vec::new();
     File::open(path)
         .ok()?

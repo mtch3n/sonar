@@ -34,7 +34,7 @@ In the search bar, ↑ and ↓ move, Enter opens the file, Ctrl + Enter (⌘ + E
 
 Words match the start of words in file and folder names, so `inv` finds `invoice-march.pdf` and `photos` finds `backupPhotos.sh`. Every word has to match.
 
-Words of three letters or more also match the text inside plain-text files outside code projects: notes, Markdown, CSV, scripts and config files. `rsync` finds a backup script that runs rsync, and the result shows the line that matched. Name matches come first. Sonar reads up to 64 KB of each file, and never reads keys and certificates or files that are only stored in OneDrive or iCloud.
+Words of three letters or more also match the text inside files outside code projects: notes, Markdown, CSV, scripts and config files, PDFs, Word, Excel and PowerPoint files (`.docx`, `.xlsx`, `.pptx`), and OpenDocument files (`.odt`, `.ods`, `.odp`). `rsync` finds a backup script that runs rsync, `boiler` finds the lease that mentions it, and the result shows the line that matched: a paragraph, a slide's line of text or a spreadsheet row. Name matches come first. Sonar keeps up to 64 KB of text from each file, skips documents over 20 MB and ones that are encrypted or broken, and never reads keys and certificates or files that are only stored in OneDrive or iCloud. Older `.doc`, `.xls` and `.ppt` files are found by name only.
 
 | Filter | Example | Meaning |
 |---|---|---|
@@ -120,7 +120,7 @@ Your home folder, except hidden folders (`.ssh`, `.gnupg` and `.kube` are kept),
 - macOS: `~/Library/Application Support/sonar/ignore`
 - Windows: `%APPDATA%\sonar\ignore`
 
-Sonar records names, sizes and dates, and up to 64 KB of text from plain-text files outside code projects, for searching inside them; it never reads keys and certificates. It also opens a file's first four bytes when it needs to tell a script from a program or a Keynote deck from a key file, and reads your browsers' bookmarks and history when you search. The index never leaves your computer.
+Sonar records names, sizes and dates, and up to 64 KB of text from plain-text files, PDFs, and Office and OpenDocument files outside code projects, for searching inside them; it never reads keys and certificates. It also opens a file's first four bytes when it needs to tell a script from a program or a Keynote deck from a key file, and reads your browsers' bookmarks and history when you search. The index never leaves your computer.
 
 Sonar itself only goes online to check GitHub for updates, to download exchange rates once a day (turn off Download exchange rates under the calculator in Settings to stop that) and, when you type `plugins`, to list and download plugins.
 
