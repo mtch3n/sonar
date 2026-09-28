@@ -74,31 +74,22 @@ pub struct PluginInfo {
     problem: Option<String>,
 }
 
-/// The browser search and every plugin, Sonar's own and installed, on or off.
+/// Every plugin, Sonar's own and installed, on or off.
 fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
-    let mut plugins = vec![PluginInfo {
-        id: sonar_plugins::browser::ID.into(),
-        name: "Browser".into(),
-        description: Some(
-            "Bookmarks and history from Chrome, Edge, Brave and other Chromium browsers".into(),
-        ),
-        keyword: None,
-        image: None,
-        icon: "bookmark",
-        settings: sonar_plugins::browser::settings(),
-        problem: None,
-    }];
-    plugins.extend(launcher.installed().into_iter().map(|manifest| PluginInfo {
-        problem: manifest.missing(),
-        id: manifest.id,
-        name: manifest.name,
-        description: manifest.description,
-        keyword: manifest.keyword,
-        image: manifest.icon,
-        icon: "plugin",
-        settings: manifest.settings,
-    }));
-    plugins
+    launcher
+        .installed()
+        .into_iter()
+        .map(|manifest| PluginInfo {
+            problem: manifest.missing(),
+            id: manifest.id,
+            name: manifest.name,
+            description: manifest.description,
+            keyword: manifest.keyword,
+            image: manifest.icon,
+            icon: "plugin",
+            settings: manifest.settings,
+        })
+        .collect()
 }
 
 #[tauri::command]
