@@ -2,6 +2,8 @@
 
 mod bundled;
 mod editor;
+#[cfg(target_os = "linux")]
+mod gnome;
 mod host;
 mod hotkey;
 mod indexer;
@@ -25,22 +27,36 @@ use crate::{
 const TOGGLE: &str = "--toggle";
 const BACKGROUND: &str = "--background";
 const SETTINGS: &str = "--settings";
+const QUERY: &str = "--query";
 
 fn main() {
     // Sonar's own plugins run as their own processes of this same program.
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("--plugin") {
-        let id = args.next().unwrap_or_default();
-        if !bundled::serve(&id) {
-            eprintln!("sonar: there's no plugin `{id}` in Sonar");
-            std::process::exit(2);
+    match args.next().as_deref() {
+        Some("--plugin") => {
+            let id = args.next().unwrap_or_default();
+            if !bundled::serve(&id) {
+                eprintln!("sonar: there's no plugin `{id}` in Sonar");
+                std::process::exit(2);
+            }
+            return;
         }
-        return;
+        #[cfg(target_os = "linux")]
+        Some("--install-gnome-extension") => {
+            if let Err(err) = gnome::install_extension() {
+                eprintln!("sonar: couldn't install the GNOME extension: {err}");
+                std::process::exit(1);
+            }
+            return;
+        }
+        _ => {}
     }
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-            if args.iter().any(|a| a == TOGGLE) {
+            if let Some(text) = query_arg(&args) {
+                window::show_with(app, &text);
+            } else if args.iter().any(|a| a == TOGGLE) {
                 window::toggle(app);
             } else if args.iter().any(|a| a == SETTINGS) {
                 editor::open(app);
@@ -91,7 +107,10 @@ fn main() {
             updater::watch(app.handle());
             reload(app.handle());
 
-            if std::env::args().any(|a| a == SETTINGS) {
+            let args: Vec<String> = std::env::args().collect();
+            if let Some(text) = query_arg(&args) {
+                window::show_with(app.handle(), &text);
+            } else if args.iter().any(|a| a == SETTINGS) {
                 editor::open(app.handle());
             } else if !std::env::args().any(|a| a == BACKGROUND) {
                 window::show(app.handle());
@@ -119,6 +138,13 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Sonar");
+}
+
+/// The text after `--query`, which opens the bar with it typed, like `--query "w "`
+/// for a window switcher bound to Alt+Tab.
+fn query_arg(args: &[String]) -> Option<String> {
+    let at = args.iter().position(|a| a == QUERY)?;
+    args.get(at + 1).cloned()
 }
 
 /// Applies `settings.toml` and the plugin folders: runs every time the bar opens.

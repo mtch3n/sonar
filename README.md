@@ -26,6 +26,8 @@ The builds aren't code-signed yet. On macOS, right-click the app and choose Open
 | Linux, GNOME | Ctrl + Alt + Space, added to Settings → Keyboard → Custom Shortcuts |
 | Other Linux desktops | Bind `sonar-app --toggle` to a key of your choice |
 
+`sonar-app --query "text"` opens the search bar with the text already typed, and `sonar-app --settings` opens the Settings window.
+
 To use other keys, change `shortcut` in the [settings](#settings).
 
 In the search bar, ↑ and ↓ move, Enter opens the file, Ctrl + Enter (⌘ + Enter on macOS) shows it in its folder, or opens a folder or project in your terminal, and Esc closes. The bottom of the bar shows what Enter and Ctrl + Enter do for the selected result.
@@ -73,7 +75,15 @@ Sonar reads the browsers' own files, so it needs no extension, and nothing is se
 
 ## Plugins
 
-Plugins add results of their own. Sonar ships with four, which can be turned off or given another keyword in Settings like any other plugin: the calculator and the browser search, System (type `lock`, `sleep`, `restart`, `shut down`, `log out` or `empty trash`; restarting, shutting down and logging out ask for a second Enter first) and Processes (`kill chrome` lists matching programs by memory; Enter ends one, Ctrl + Enter forces it). Most plugins start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
+Plugins add results of their own. Sonar ships with four, which can be turned off or given another keyword in Settings like any other plugin: the calculator and the browser search, System (type `lock`, `sleep`, `restart`, `shut down`, `log out` or `empty trash`; restarting, shutting down and logging out ask for a second Enter first) and Processes (`kill chrome` lists matching programs by memory; Enter ends one, Ctrl + Enter forces it) and Windows (`w` lists your open windows, most recent first; Enter switches to one, Ctrl + Enter closes it).
+
+Windows works on GNOME for now. GNOME only shows other apps' windows to its own extensions, so the first time you type `w`, Sonar offers to install a small one; log out and back in afterwards. To use it in place of Alt + Tab, move GNOME's switcher to another key and bind Alt + Tab to Sonar with the window list already typed:
+
+```sh
+gsettings set org.gnome.desktop.wm.keybindings switch-applications "['<Super>Tab']"
+```
+
+Then add a custom shortcut in Settings → Keyboard with the command `sonar-app --query "w "` (the AppImage's path in place of `sonar-app` if you use it). Unlike GNOME's switcher, it stays open when you let go of Alt: type to narrow the list and press Enter. Most plugins start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
 
 Type `plugins` and a space to see what's installed and what the marketplaces offer. Enter installs or updates the selected plugin, and Ctrl + Enter removes it. Type `plugins` and a GitHub repository, like `plugins alice/sonar-emoji` or a github.com link, to add it: a repository with a single plugin is installed, and a marketplace is added to your list. Plugins… in the tray menu opens the same list.
 

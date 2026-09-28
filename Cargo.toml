@@ -49,6 +49,7 @@ tokio = "1.53.1"
 toml = "1.1.6"
 toml_edit = "0.25.15"
 webkit2gtk = "2.0.2"
+zbus = "5.19.0"
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 windows-registry = "0.100.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
