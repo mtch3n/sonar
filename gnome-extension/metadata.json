@@ -1,7 +1,7 @@
 {
   "uuid": "sonar-windows@mtch3n.github.io",
-  "name": "Sonar",
-  "description": "Lets Sonar list your open windows and switch to them, and keep a history of what you copy. GNOME keeps other apps from seeing either, so Sonar needs this to do it.",
+  "name": "Sonar windows",
+  "description": "Lets Sonar list your open windows and switch to them. GNOME keeps other apps from seeing windows, so Sonar needs this to do it.",
   "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": "https://github.com/mtch3n/sonar"
 }

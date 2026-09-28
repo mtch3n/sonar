@@ -68,7 +68,7 @@ fn answer(
                 "--install-gnome-extension".into(),
             ];
             let mut item = Item::new(
-                "Install the Sonar extension for GNOME",
+                "Install the Sonar windows extension for GNOME",
                 Action::Run(install),
             );
             item.subtitle = Some(

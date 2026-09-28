@@ -1,6 +1,5 @@
 //! Installs the GNOME Shell extension that lets the windows plugin see and switch
-//! windows, and tells Sonar what's copied for the clipboard plugin. GNOME on Wayland
-//! loads a new or updated extension at the next login.
+//! windows. GNOME on Wayland loads a new extension at the next login.
 
 use std::{fs, path::PathBuf, process::Command};
 
@@ -98,6 +97,5 @@ mod tests {
     fn the_shipped_extension_is_named_as_the_plugin_expects() {
         assert!(METADATA.contains(&format!("\"uuid\": \"{EXTENSION}\"")));
         assert!(SCRIPT.contains("io.github.mtch3n.Sonar.Windows"));
-        assert!(SCRIPT.contains("io.github.mtch3n.Sonar.Clipboard"));
     }
 }
