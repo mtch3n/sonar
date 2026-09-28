@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { ChevronRight, TriangleAlert, X } from "lucide-react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { ChevronRight, Minus, TriangleAlert, X } from "lucide-react";
 import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { Glyph } from "./icons";
 import { applyLook } from "./look";
@@ -9,6 +10,7 @@ import "./styles.css";
 import "./settings.css";
 
 const isMac = navigator.userAgent.includes("Mac");
+const platform = isMac ? "mac" : navigator.userAgent.includes("Windows") ? "windows" : "linux";
 
 export default function Settings() {
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -19,6 +21,7 @@ export default function Settings() {
   const [expanded, setExpanded] = useState<string[]>([]);
 
   useEffect(() => {
+    document.documentElement.dataset.platform = platform;
     invoke<Editor>("settings_get").then((loaded) => {
       setEditor(loaded);
       setDraft(loaded.settings);
@@ -67,8 +70,8 @@ export default function Settings() {
 
   return (
     <div className="page">
+      <TitleBar />
       <main className="settings">
-        <h1>Settings</h1>
         {editor.problem && (
           <p className="banner">
             <TriangleAlert size={16} strokeWidth={2} aria-hidden />
@@ -137,6 +140,25 @@ export default function Settings() {
               on={draft.updates.check}
               onChange={(check) => change({ ...draft, updates: { check } })}
             />
+          </Row>
+        </Group>
+
+        <Group title="Files">
+          <Row label="Code editor" hint="Opens projects, code, scripts and config. Empty uses each file's default app">
+            <input
+              className="text field"
+              list="editors"
+              value={draft.files.editor}
+              placeholder="Default app"
+              onChange={(e) => change({ ...draft, files: { editor: e.target.value } })}
+              aria-label="Code editor"
+              spellCheck={false}
+            />
+            <datalist id="editors">
+              {editor.editors.map((command) => (
+                <option key={command} value={command} />
+              ))}
+            </datalist>
           </Row>
         </Group>
 
@@ -245,6 +267,26 @@ export default function Settings() {
         </button>
       </footer>
     </div>
+  );
+}
+
+/** The window's own title bar: drags the window, and has its buttons where the system's aren't drawn. */
+function TitleBar() {
+  const appWindow = getCurrentWindow();
+  return (
+    <header className="titlebar" data-tauri-drag-region>
+      <h1 data-tauri-drag-region>Settings</h1>
+      {!isMac && (
+        <div className="window-buttons">
+          <button type="button" className="icon-button" aria-label="Minimize" onClick={() => appWindow.minimize()}>
+            <Minus size={16} strokeWidth={2} aria-hidden />
+          </button>
+          <button type="button" className="icon-button close" aria-label="Close" onClick={() => appWindow.close()}>
+            <X size={16} strokeWidth={2} aria-hidden />
+          </button>
+        </div>
+      )}
+    </header>
   );
 }
 

@@ -20,13 +20,24 @@ pub fn open(app: &AppHandle) {
         let _ = window.set_focus();
         return;
     }
-    let built =
+    let builder =
         WebviewWindowBuilder::new(app, LABEL, WebviewUrl::App("index.html#settings".into()))
             .title("Sonar Settings")
             .inner_size(680.0, 760.0)
             .min_inner_size(560.0, 480.0)
-            .center()
-            .build();
+            .center();
+    // The window draws its own title bar to match the rest of Sonar. macOS keeps its
+    // traffic lights over it; elsewhere the page has its own buttons, and on Linux
+    // its own rounded corners.
+    #[cfg(target_os = "macos")]
+    let builder = builder
+        .title_bar_style(tauri::TitleBarStyle::Overlay)
+        .hidden_title(true);
+    #[cfg(target_os = "linux")]
+    let builder = builder.decorations(false).transparent(true);
+    #[cfg(windows)]
+    let builder = builder.decorations(false).shadow(true);
+    let built = builder.build();
     if let Err(err) = built {
         eprintln!("sonar: couldn't open the settings window: {err}");
     }
@@ -38,6 +49,8 @@ pub struct Editor {
     settings: Settings,
     plugins: Vec<PluginInfo>,
     path: String,
+    /// Editors found on this computer, suggested for `files.editor`.
+    editors: Vec<String>,
     /// Why the file can't be read, if it can't; the form then shows the last
     /// settings that worked.
     problem: Option<String>,
@@ -86,6 +99,7 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
     Editor {
         settings: launcher.current_settings(),
         plugins: plugins(&launcher),
+        editors: installed_editors(),
         path: path.display().to_string(),
         problem: Settings::load(path).err(),
     }
@@ -102,6 +116,63 @@ pub fn settings_save(
     crate::reload(&app);
     let _ = app.emit("sonar://view", ());
     Ok(())
+}
+
+/// Editor commands, most used first, that open a file or folder given after them.
+const EDITORS: [&str; 16] = [
+    "code",
+    "cursor",
+    "zed",
+    "zeditor",
+    "codium",
+    "windsurf",
+    "subl",
+    "idea",
+    "pycharm",
+    "webstorm",
+    "rustrover",
+    "kate",
+    "gnome-text-editor",
+    "gedit",
+    "emacs",
+    "notepad++",
+];
+
+/// Editors on `PATH`, and on macOS the editor apps in /Applications.
+fn installed_editors() -> Vec<String> {
+    let dirs: Vec<_> = std::env::var_os("PATH")
+        .map(|path| std::env::split_paths(&path).collect())
+        .unwrap_or_default();
+    let found = |name: &str| {
+        let exts: &[&str] = if cfg!(windows) {
+            &["exe", "cmd", "bat"]
+        } else {
+            &[""]
+        };
+        dirs.iter().any(|dir| {
+            exts.iter()
+                .any(|ext| dir.join(name).with_extension(ext).is_file())
+        })
+    };
+    let mut editors: Vec<String> = EDITORS
+        .iter()
+        .filter(|name| found(name))
+        .map(|name| name.to_string())
+        .collect();
+    if cfg!(target_os = "macos") {
+        for app in [
+            "Visual Studio Code",
+            "Cursor",
+            "Zed",
+            "Sublime Text",
+            "TextEdit",
+        ] {
+            if std::path::Path::new(&format!("/Applications/{app}.app")).exists() {
+                editors.push(format!("open -a '{app}'"));
+            }
+        }
+    }
+    editors
 }
 
 /// Refuses values that don't fit what their plugin declares, naming the first one.

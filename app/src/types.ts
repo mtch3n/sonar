@@ -59,6 +59,7 @@ export type Settings = {
   marketplaces: string[];
   appearance: { theme: "system" | "light" | "dark"; accent: string; width: number; rows: number };
   search: { limit: number };
+  files: { editor: string };
   index: { rescan_minutes: number };
   updates: { check: boolean };
   plugins: Record<string, PluginSettings>;
@@ -78,5 +79,6 @@ export type Editor = {
   settings: Settings;
   plugins: PluginInfo[];
   path: string;
+  editors: string[];
   problem: string | null;
 };

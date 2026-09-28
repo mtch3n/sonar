@@ -69,7 +69,7 @@ To write a plugin or run a marketplace, see [docs/plugins.md](docs/plugins.md).
 
 ## Settings
 
-Settings… in the tray menu opens the Settings window. Everything in it is saved to `settings.toml`, which you can also edit by hand; Sonar writes it on first run:
+Settings… in the tray menu, or `sonar-app --settings`, opens the Settings window. Everything in it is saved to `settings.toml`, which you can also edit by hand; Sonar writes it on first run:
 
 - Linux: `~/.config/sonar/settings.toml`
 - macOS: `~/Library/Application Support/sonar/settings.toml`
@@ -86,6 +86,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `appearance.width` | `720` | width of the search bar, 480 to 1600 |
 | `appearance.rows` | `8` | results shown before the list scrolls, 3 to 20 |
 | `search.limit` | `20` | results to find when the query has no `limit:` |
+| `files.editor` | empty | the command that opens projects, code, scripts and config files, like `code`, `zed` or `open -a 'Visual Studio Code'`; empty opens them in their default app |
 | `index.rescan_minutes` | `5` | how often to look for new and changed files |
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |

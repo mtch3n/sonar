@@ -13,6 +13,7 @@ pub struct Settings {
     pub marketplaces: Vec<String>,
     pub appearance: Appearance,
     pub search: Search,
+    pub files: Files,
     pub index: Index,
     pub updates: Updates,
     pub plugins: BTreeMap<String, PluginSettings>,
@@ -39,6 +40,14 @@ pub enum Theme {
 #[serde(default, deny_unknown_fields)]
 pub struct Search {
     pub limit: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Files {
+    /// The command that opens projects and code, like `code` or `zed`. Empty opens
+    /// them in their default app.
+    pub editor: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -78,6 +87,7 @@ impl Default for Settings {
             marketplaces: vec![OFFICIAL_MARKETPLACE.to_owned()],
             appearance: Appearance::default(),
             search: Search::default(),
+            files: Files::default(),
             index: Index::default(),
             updates: Updates::default(),
             plugins: BTreeMap::new(),
@@ -168,6 +178,7 @@ impl Settings {
         within("width", a.width, 480, 1600)?;
         within("rows", a.rows, 3, 20)?;
         within("limit", self.search.limit, 1, 500)?;
+        self.editor()?;
         within("rescan_minutes", self.index.rescan_minutes, 1, 24 * 60)?;
         for (id, plugin) in &self.plugins {
             if let Some(keyword) = &plugin.keyword {
@@ -188,6 +199,18 @@ impl Settings {
         let own = self.plugin(calculator::ID);
         let (values, _) = sonar_plugins::resolve(&calculator::settings(), &own.values);
         own.enabled && values[calculator::DOWNLOAD_RATES] == true
+    }
+
+    /// The editor command split into the program and its arguments, or `None` when
+    /// files open in their default app.
+    pub fn editor(&self) -> Result<Option<Vec<String>>, String> {
+        let editor = self.files.editor.trim();
+        if editor.is_empty() {
+            return Ok(None);
+        }
+        shell_words::split(editor)
+            .map(Some)
+            .map_err(|_| format!("editor `{editor}` has a quote that isn't closed"))
     }
 
     pub fn shortcut(&self) -> Shortcut {
@@ -255,6 +278,13 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
         Theme::Dark => "dark",
     };
     let marketplaces: Array = settings.marketplaces.iter().map(String::as_str).collect();
+    // A file from an older Sonar may lack a newer section; add it as a [section]
+    // rather than letting it become an inline table.
+    for name in ["appearance", "search", "files", "index", "updates"] {
+        if !doc.contains_table(name) {
+            doc.insert(name, Item::Table(Table::new()));
+        }
+    }
     set(&mut doc["shortcut"], settings.shortcut.as_str().into());
     set(&mut doc["marketplaces"], marketplaces.into());
     set(&mut doc["appearance"]["theme"], theme.into());
@@ -264,6 +294,10 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
     set(
         &mut doc["search"]["limit"],
         (settings.search.limit as i64).into(),
+    );
+    set(
+        &mut doc["files"]["editor"],
+        settings.files.editor.as_str().into(),
     );
     set(
         &mut doc["index"]["rescan_minutes"],
@@ -458,6 +492,9 @@ rows = 8            # results shown before the list scrolls, 3 to 20
 [search]
 limit = 20          # results to find when the query has no limit: filter
 
+[files]
+editor = ""         # opens projects and code, like "code" or "zed"; empty uses the default app
+
 [index]
 rescan_minutes = 5  # how often to look for new and changed files
 
@@ -496,6 +533,7 @@ mod tests {
             ("[appearance]\nrows = 40", "rows is 40"),
             ("shortcut = \"alt+space+k\"", "unknown modifier"),
             ("marketplaces = [\"nope\"]", "marketplace"),
+            ("[files]\neditor = \"code '--new\"", "quote"),
             ("[plugins.web]\nkeyword = \"two words\"", "plugins.web"),
         ] {
             let err = Settings::parse(text).unwrap_err();
@@ -582,12 +620,46 @@ mod tests {
     }
 
     #[test]
+    fn editors_split_into_program_and_arguments() {
+        assert_eq!(Settings::default().editor(), Ok(None));
+        let settings =
+            Settings::parse("[files]\neditor = \"open -a 'Visual Studio Code'\"\n").unwrap();
+        assert_eq!(
+            settings.editor(),
+            Ok(Some(vec![
+                "open".into(),
+                "-a".into(),
+                "Visual Studio Code".into()
+            ]))
+        );
+    }
+
+    #[test]
     fn rates_download_unless_turned_off() {
         assert!(Settings::default().downloads_rates());
         let off = Settings::parse("[plugins.calculator]\nrates = false\n").unwrap();
         assert!(!off.downloads_rates());
         let calculator_off = Settings::parse("[plugins.calculator]\nenabled = false\n").unwrap();
         assert!(!calculator_off.downloads_rates());
+    }
+
+    #[test]
+    fn saving_adds_sections_an_older_file_lacks() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.toml");
+        let old = template().replace("[files]\n", "").replace(
+            "editor = \"\"         # opens projects and code, like \"code\" or \"zed\"; empty uses the default app\n\n",
+            "",
+        );
+        assert!(!old.contains("[files]"));
+        fs::write(&path, old).unwrap();
+        let mut settings = Settings::default();
+        settings.files.editor = "subl".into();
+        save(&path, &settings).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[files]\neditor = \"subl\""), "{text}");
+        assert!(text.contains("# color of the selection"), "{text}");
+        assert_eq!(Settings::parse(&text).unwrap(), settings);
     }
 
     #[test]
