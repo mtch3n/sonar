@@ -507,6 +507,10 @@ check = true        # look for new versions of Sonar on GitHub
 # currency = "EUR"  # what amounts like 100 usd are shown in
 # rates = false     # stop downloading exchange rates
 #
+# [plugins.browser]
+# history = false   # search bookmarks only
+# results = 5       # 1 to 10
+#
 # [plugins.web-search]
 # keyword = "w"
 # first = "duckduckgo"

@@ -1,6 +1,7 @@
 import {
   AppWindow,
   Archive,
+  Bookmark,
   Calculator,
   File,
   FileCode,
@@ -9,6 +10,7 @@ import {
   Film,
   Folder,
   FolderGit2,
+  History,
   Image,
   KeyRound,
   type LucideIcon,
@@ -20,7 +22,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 
-/** File kinds from sonar-core's `Kind`, plus the glyphs plugins and the calculator use. */
+/** File kinds from sonar-core's `Kind`, plus the glyphs plugins, the calculator and browser results use. */
 const GLYPHS: Record<string, LucideIcon> = {
   project: FolderGit2,
   folder: Folder,
@@ -39,6 +41,8 @@ const GLYPHS: Record<string, LucideIcon> = {
   config: FileCog,
   other: File,
   calculator: Calculator,
+  bookmark: Bookmark,
+  history: History,
   plugin: Puzzle,
   github: PackagePlus,
 };
