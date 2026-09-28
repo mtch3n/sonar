@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use sonar_core::{Hit, Index, Paths, Query, Rules};
+use sonar_core::{DEFAULT_TEXT_LIMIT, Hit, Index, Paths, Query, Rules};
 
 #[derive(Parser)]
 #[command(name = "sonar", version, about = "Find any file in your home folder")]
@@ -90,10 +90,21 @@ fn run_update() -> Result<()> {
     Ok(())
 }
 
+/// The text limit the app's settings ask for, so both read files alike, or the
+/// default when they don't set a valid one.
+fn text_limit(paths: &Paths) -> usize {
+    std::fs::read_to_string(&paths.settings)
+        .ok()
+        .and_then(|text| text.parse::<toml::Table>().ok())
+        .and_then(|settings| settings.get("index")?.get("text_kb")?.as_integer())
+        .filter(|kb| (1..=16 * 1024).contains(kb))
+        .map_or(DEFAULT_TEXT_LIMIT, |kb| kb as usize * 1024)
+}
+
 fn run_index(index: &mut Index, paths: &Paths) -> Result<()> {
     let rules = Rules::load(&paths.rules, &paths.home)?;
     let started = Instant::now();
-    let stats = index.scan(&paths.home, &rules)?;
+    let stats = index.scan(&paths.home, &rules, text_limit(paths))?;
     println!(
         "Indexed {} files, {} folders and {} projects in {:.1}s",
         stats.files,

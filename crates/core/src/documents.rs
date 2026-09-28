@@ -20,20 +20,21 @@ use pdf_extract::{ConvertToFmt, Document, PlainTextOutput};
 use quick_xml::{escape::resolve_predefined_entity, events::Event};
 use zip::ZipArchive;
 
-use crate::text::LIMIT;
-
 pub(crate) const EXTS: &[&str] = &["pdf", "docx", "xlsx", "pptx", "odt", "ods", "odp"];
 
-/// Larger files are skipped. Only the first 64 KB of text is kept, and a document
+/// Larger files are skipped. Only the start of their text is kept, and a document
 /// this big is mostly images, fonts or embedded media, while PDFs are loaded whole
 /// into memory to be read, so bigger files would cost much and add little.
 const MAX_SIZE: u64 = 20 * 1024 * 1024;
-/// How long reading one file may take. Documents that are read to the text limit
-/// finish in well under a second.
+/// How long reading one file may take. Documents that are read to the default text
+/// limit finish in well under a second; with a high limit, what was read by then is kept.
 const TIME: Duration = Duration::from_secs(5);
+/// How much of an OpenDocument manifest is read to look for encryption.
+const MANIFEST_LIMIT: u64 = 64 * 1024;
 
-/// The text of a document, or `None` when it's too big, broken, encrypted or empty.
-pub(crate) fn read(path: &Path, ext: &str) -> Option<String> {
+/// Up to `limit` bytes of a document's text, or `None` when it's too big, broken,
+/// encrypted or empty.
+pub(crate) fn read(path: &Path, ext: &str, limit: usize) -> Option<String> {
     if fs::metadata(path).ok()?.len() > MAX_SIZE {
         return None;
     }
@@ -45,7 +46,7 @@ pub(crate) fn read(path: &Path, ext: &str) -> Option<String> {
     thread::Builder::new()
         .name("sonar-documents".into())
         .spawn(move || {
-            let mut text = Text::new(deadline);
+            let mut text = Text::new(limit, deadline);
             let _ = panic::catch_unwind(AssertUnwindSafe(|| extract(&path, &ext, &mut text)));
             let _ = tx.send(text.finish());
         })
@@ -86,7 +87,7 @@ fn extract(path: &Path, ext: &str, text: &mut Text) {
             let mut manifest = String::new();
             zip.by_name("META-INF/manifest.xml")
                 .ok()?
-                .take(LIMIT)
+                .take(MANIFEST_LIMIT)
                 .read_to_string(&mut manifest)
                 .ok()?;
             if manifest.contains("encryption-data") {
@@ -104,14 +105,16 @@ fn extract(path: &Path, ext: &str, text: &mut Text) {
 /// deadline has passed.
 struct Text {
     text: String,
+    limit: usize,
     full: bool,
     deadline: Instant,
 }
 
 impl Text {
-    fn new(deadline: Instant) -> Text {
+    fn new(limit: usize, deadline: Instant) -> Text {
         Text {
             text: String::new(),
+            limit,
             full: false,
             deadline,
         }
@@ -122,7 +125,7 @@ impl Text {
         if self.full || Instant::now() > self.deadline {
             return false;
         }
-        let room = LIMIT as usize - self.text.len();
+        let room = self.limit - self.text.len();
         if s.len() <= room {
             self.text.push_str(s);
             return true;
@@ -337,6 +340,7 @@ mod tests {
     use zip::{ZipWriter, write::SimpleFileOptions};
 
     use super::*;
+    use crate::text::DEFAULT_TEXT_LIMIT;
 
     fn zip(dir: &Path, name: &str, entries: &[(&str, &str)]) -> PathBuf {
         let path = dir.join(name);
@@ -431,7 +435,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            read(&path, "pdf").as_deref(),
+            read(&path, "pdf", DEFAULT_TEXT_LIMIT).as_deref(),
             Some("Quarterly budget review\nTravel and lodging")
         );
     }
@@ -453,7 +457,7 @@ mod tests {
         );
         let path = zip(dir.path(), "notes.docx", &[("word/document.xml", &body)]);
         assert_eq!(
-            read(&path, "docx").as_deref(),
+            read(&path, "docx", DEFAULT_TEXT_LIMIT).as_deref(),
             Some("Quarterly budget\nTom & Jerry €5\nItem name \tCost\nPaper \t12")
         );
     }
@@ -480,7 +484,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            read(&path, "pptx").as_deref(),
+            read(&path, "pptx", DEFAULT_TEXT_LIMIT).as_deref(),
             Some("Roadmap\nLaunch in May\nHiring\nTwo engineers\nQuestions")
         );
     }
@@ -500,7 +504,7 @@ mod tests {
              </table:table-row></table:table></office:text>",
         );
         assert_eq!(
-            read(&odt, "odt").as_deref(),
+            read(&odt, "odt", DEFAULT_TEXT_LIMIT).as_deref(),
             Some("Dear landlord\nThe heating is broken.\nRoom \tKitchen")
         );
 
@@ -516,7 +520,10 @@ mod tests {
              <table:table-cell><text:p>Paper</text:p></table:table-cell>\
              </table:table-row></table:table></office:spreadsheet>",
         );
-        assert_eq!(read(&ods, "ods").as_deref(), Some("Item \t12\nPaper"));
+        assert_eq!(
+            read(&ods, "ods", DEFAULT_TEXT_LIMIT).as_deref(),
+            Some("Item \t12\nPaper")
+        );
 
         let odp = open_document(
             dir.path(),
@@ -526,7 +533,10 @@ mod tests {
              <text:p>Welcome</text:p><text:p>Agenda<text:line-break/>Lunch</text:p>\
              </draw:text-box></draw:frame></draw:page></office:presentation>",
         );
-        assert_eq!(read(&odp, "odp").as_deref(), Some("Welcome\nAgenda\nLunch"));
+        assert_eq!(
+            read(&odp, "odp", DEFAULT_TEXT_LIMIT).as_deref(),
+            Some("Welcome\nAgenda\nLunch")
+        );
     }
 
     #[test]
@@ -568,7 +578,7 @@ mod tests {
             ],
         );
         assert_eq!(
-            read(&path, "xlsx").as_deref(),
+            read(&path, "xlsx", DEFAULT_TEXT_LIMIT).as_deref(),
             Some("Item\tCost\nPaper\t12.5\nFar away")
         );
     }
@@ -578,15 +588,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let body = word(&"<w:p><w:r><w:t>lorem ipsum ünïcode</w:t></w:r></w:p>".repeat(10_000));
         let path = zip(dir.path(), "long.docx", &[("word/document.xml", &body)]);
-        let text = read(&path, "docx").unwrap();
+        let text = read(&path, "docx", DEFAULT_TEXT_LIMIT).unwrap();
         assert!(text.starts_with("lorem ipsum ünïcode\nlorem"));
-        assert!(text.len() <= LIMIT as usize);
-        assert!(text.len() > LIMIT as usize - 100);
+        assert!(text.len() <= DEFAULT_TEXT_LIMIT);
+        assert!(text.len() > DEFAULT_TEXT_LIMIT - 100);
     }
 
     #[test]
     fn stops_at_the_deadline() {
-        let mut text = Text::new(Instant::now());
+        let mut text = Text::new(DEFAULT_TEXT_LIMIT, Instant::now());
         thread::sleep(Duration::from_millis(1));
         assert!(!text.push("late"));
         assert_eq!(text.finish(), None);
@@ -598,14 +608,14 @@ mod tests {
         let junk = dir.path().join("junk");
         fs::write(&junk, b"PK\x03\x04 not a zip %PDF-1.4 \xff\xfe").unwrap();
         for ext in EXTS {
-            assert_eq!(read(&junk, ext), None, "{ext}");
+            assert_eq!(read(&junk, ext, DEFAULT_TEXT_LIMIT), None, "{ext}");
         }
 
         let mut truncated = pdf(&["Quarterly budget review"]);
         truncated.truncate(truncated.len() / 2);
         let path = dir.path().join("truncated.pdf");
         fs::write(&path, truncated).unwrap();
-        assert_eq!(read(&path, "pdf"), None);
+        assert_eq!(read(&path, "pdf", DEFAULT_TEXT_LIMIT), None);
 
         let path = zip(
             dir.path(),
@@ -615,10 +625,13 @@ mod tests {
                 "<w:document><w:body><w:p><w:t>kept</w:t></w:p></w:x>",
             )],
         );
-        assert_eq!(read(&path, "docx").as_deref(), Some("kept"));
+        assert_eq!(
+            read(&path, "docx", DEFAULT_TEXT_LIMIT).as_deref(),
+            Some("kept")
+        );
 
         let path = zip(dir.path(), "broken.xlsx", &[("xl/workbook.xml", "<")]);
-        assert_eq!(read(&path, "xlsx"), None);
+        assert_eq!(read(&path, "xlsx", DEFAULT_TEXT_LIMIT), None);
 
         let manifest = MANIFEST.replace("/>", "><manifest:encryption-data/></manifest:file-entry>");
         let path = open_document(
@@ -627,7 +640,7 @@ mod tests {
             &manifest,
             "<office:text><text:p>hidden</text:p></office:text>",
         );
-        assert_eq!(read(&path, "odt"), None);
+        assert_eq!(read(&path, "odt", DEFAULT_TEXT_LIMIT), None);
     }
 
     #[test]
@@ -635,6 +648,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("huge.pdf");
         File::create(&path).unwrap().set_len(MAX_SIZE + 1).unwrap();
-        assert_eq!(read(&path, "pdf"), None);
+        assert_eq!(read(&path, "pdf", DEFAULT_TEXT_LIMIT), None);
     }
 }

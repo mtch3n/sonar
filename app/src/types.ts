@@ -60,7 +60,7 @@ export type Settings = {
   appearance: { theme: "system" | "light" | "dark"; accent: string; width: number; rows: number };
   search: { limit: number };
   files: { editor: string; terminal: string };
-  index: { rescan_minutes: number };
+  index: { rescan_minutes: number; text_kb: number };
   updates: { check: boolean };
   plugins: Record<string, PluginSettings>;
 };

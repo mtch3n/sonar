@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA: &str = "
 CREATE TABLE files (
@@ -28,6 +28,8 @@ CREATE TABLE texts (
     id INTEGER PRIMARY KEY,
     text TEXT NOT NULL
 );
+-- How much of each file's text the last scan kept, so a new limit re-reads them.
+CREATE TABLE text_limit (bytes INTEGER NOT NULL);
 CREATE TRIGGER files_deleted AFTER DELETE ON files BEGIN
     DELETE FROM files_fts WHERE rowid = old.id;
     DELETE FROM texts WHERE id = old.id;
@@ -47,6 +49,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
         let tx = conn.transaction()?;
         tx.execute_batch(
             "DROP TRIGGER IF EXISTS files_deleted;
+             DROP TABLE IF EXISTS text_limit;
              DROP TABLE IF EXISTS texts;
              DROP TABLE IF EXISTS files_fts;
              DROP TABLE IF EXISTS files;",

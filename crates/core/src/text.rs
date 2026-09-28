@@ -4,8 +4,10 @@ use std::{fs::File, io::Read, path::Path};
 
 use crate::{Kind, documents, words::words};
 
-/// How much of a file is read and kept in the index.
-pub(crate) const LIMIT: u64 = 64 * 1024;
+/// How much of a file's text is kept in the index unless a scan is told otherwise,
+/// in bytes. It covers notes, scripts and most documents whole while keeping logs,
+/// data dumps and long books from filling the index.
+pub const DEFAULT_TEXT_LIMIT: usize = 64 * 1024;
 /// How long a matching line may be before it's shortened.
 const LINE_CHARS: usize = 160;
 /// Words kept before the first match when a line is shortened.
@@ -25,21 +27,21 @@ pub(crate) fn is_readable(kind: Kind, ext: &str) -> bool {
     }
 }
 
-/// The start of a file's text, or `None` when there is none.
-pub(crate) fn read(path: &Path, ext: &str) -> Option<String> {
+/// Up to `limit` bytes of a file's text, or `None` when there is none.
+pub(crate) fn read(path: &Path, ext: &str, limit: usize) -> Option<String> {
     if documents::EXTS.contains(&ext) {
-        documents::read(path, ext)
+        documents::read(path, ext, limit)
     } else {
-        read_plain(path)
+        read_plain(path, limit)
     }
 }
 
 /// The start of a file as text, or `None` when it's empty or not UTF-8.
-fn read_plain(path: &Path) -> Option<String> {
+fn read_plain(path: &Path, limit: usize) -> Option<String> {
     let mut bytes = Vec::new();
     File::open(path)
         .ok()?
-        .take(LIMIT)
+        .take(limit as u64)
         .read_to_end(&mut bytes)
         .ok()?;
     if bytes.contains(&0) {

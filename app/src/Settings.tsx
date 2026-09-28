@@ -159,7 +159,15 @@ export default function Settings() {
                 label="Rescan every"
                 value={draft.index.rescan_minutes}
                 unit="min"
-                onChange={(rescan_minutes) => change({ ...draft, index: { rescan_minutes } })}
+                onChange={(rescan_minutes) => change({ ...draft, index: { ...draft.index, rescan_minutes } })}
+              />
+            </Row>
+            <Row label="Text searched per file" hint="1 to 16384; more finds words further into long files but grows the index">
+              <NumberField
+                label="Text searched per file"
+                value={draft.index.text_kb}
+                unit="KB"
+                onChange={(text_kb) => change({ ...draft, index: { ...draft.index, text_kb } })}
               />
             </Row>
             <Row label="Check for updates" hint="Look for new versions of Sonar on GitHub">
