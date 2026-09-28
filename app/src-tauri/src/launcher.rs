@@ -12,7 +12,7 @@ use std::{
     time::Duration,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sonar_core::{Hit, Index, Kind, Paths, Query};
 use sonar_plugins::{
     Action, External, Item, Manifest, Position,
@@ -22,7 +22,7 @@ use sonar_plugins::{
 use sonar_settings::{Settings, Theme};
 
 use crate::meaning::QueryModel;
-use tauri::{AppHandle, State, ipc::Channel};
+use tauri::{AppHandle, Manager, State, ipc::Channel};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::{sync::OnceCell, task::JoinSet};
@@ -81,6 +81,7 @@ struct Entry {
     generation: u64,
     action: Command,
     alt: Option<Command>,
+    more: Vec<Command>,
 }
 
 /// What choosing a row does.
@@ -105,6 +106,8 @@ enum Command {
     Edit(String),
     /// A folder or project, opened in the terminal from the settings.
     Terminal(String),
+    /// A file or folder, read and learned again.
+    Reprocess(String),
 }
 
 #[derive(Clone, Serialize)]
@@ -133,6 +136,8 @@ pub struct Row {
     image: Option<String>,
     action: String,
     alt: Option<String>,
+    /// What the further actions are called.
+    more: Vec<String>,
 }
 
 /// How the search window should look, and anything it should tell the user.
@@ -168,6 +173,8 @@ struct Draft {
     /// What the footer calls the actions, when a plugin says better than the default.
     label: Option<String>,
     alt_label: Option<String>,
+    /// Further actions, listed with Ctrl + K.
+    more: Vec<Command>,
 }
 
 impl Launcher {
@@ -435,6 +442,7 @@ impl Launcher {
                 alt: None,
                 label: None,
                 alt_label: None,
+                more: Vec::new(),
             };
             let rows = self.rows(generation, Some(draft));
             first.push(section("add", "From GitHub", 0, rows, None));
@@ -522,6 +530,7 @@ impl Launcher {
                             alt: None,
                             label: None,
                             alt_label: None,
+                            more: Vec::new(),
                         });
                     let rows = self.rows(generation, drafts);
                     let empty = rows.is_empty().then(|| match filter {
@@ -548,19 +557,19 @@ impl Launcher {
             .collect()
     }
 
-    async fn activate(&self, app: &AppHandle, id: &str, alt: bool) -> Result<Outcome, String> {
+    async fn activate(&self, app: &AppHandle, id: &str, choice: Choice) -> Result<Outcome, String> {
         let command = {
             let results = lock(&self.results);
             let entry = results
                 .rows
                 .get(id)
                 .ok_or("That result is gone; the list changed. Try again.")?;
-            let command = if alt {
-                entry.alt.clone()
-            } else {
-                Some(entry.action.clone())
+            let command = match choice {
+                Choice::Action => Some(entry.action.clone()),
+                Choice::Alt => entry.alt.clone(),
+                Choice::More(n) => entry.more.get(n).cloned(),
             };
-            command.ok_or("That result has no second action")?
+            command.ok_or("That result has no such action")?
         };
         let plugins = self.paths.plugins.clone();
         let settings_path = self.paths.settings.clone();
@@ -581,6 +590,23 @@ impl Launcher {
                     Path::new(&path),
                 )?;
                 Ok(close(app))
+            }
+            Command::Reprocess(path) => {
+                let files = lock(&self.index)
+                    .forget(Path::new(&path))
+                    .map_err(|err| format!("{err:#}"))?;
+                if let Some(indexer) = app.try_state::<crate::indexer::Indexer>() {
+                    indexer.reindex();
+                }
+                let name = Path::new(&path)
+                    .file_name()
+                    .map_or(path.clone(), |n| n.to_string_lossy().into_owned());
+                Ok(Outcome::Refresh {
+                    notice: match files {
+                        1 => format!("Reading {name} again"),
+                        n => format!("Reading {n} files in {name} again"),
+                    },
+                })
             }
             Command::Install {
                 id,
@@ -782,6 +808,7 @@ impl Results {
                 .alt
                 .as_ref()
                 .map(|alt| draft.alt_label.unwrap_or_else(|| alt.label().to_owned())),
+            more: draft.more.iter().map(|c| c.label().to_owned()).collect(),
         };
         self.rows.insert(
             id,
@@ -789,6 +816,7 @@ impl Results {
                 generation,
                 action: draft.action,
                 alt: draft.alt,
+                more: draft.more,
             },
         );
         Some(row)
@@ -812,6 +840,7 @@ impl Command {
             Command::Add(_) => "Add",
             Command::Edit(_) => "Open in editor",
             Command::Terminal(_) => "Open in terminal",
+            Command::Reprocess(_) => "Read again",
         }
     }
 }
@@ -833,6 +862,7 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
             alt: None,
             label: None,
             alt_label: None,
+            more: Vec::new(),
         });
     }
     for plugin in &session.plugins {
@@ -848,6 +878,7 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
                 alt: None,
                 label: None,
                 alt_label: None,
+                more: Vec::new(),
             });
         }
     }
@@ -875,6 +906,7 @@ fn plugin_draft(item: Item, manifest: &Manifest) -> Draft {
         alt: item.alt.map(command),
         label: item.label,
         alt_label: item.alt_label,
+        more: Vec::new(),
     }
 }
 
@@ -983,6 +1015,7 @@ fn installed_draft(manifest: &Manifest, keyword: Option<&str>, enabled: bool) ->
         alt,
         label: None,
         alt_label: None,
+        more: Vec::new(),
     }
 }
 
@@ -1021,12 +1054,13 @@ fn file_draft(hit: Hit, home: &Path, now: i64, editor: bool) -> Draft {
         },
         // A folder is already where it is; opening a terminal there is more use.
         alt: Some(if matches!(hit.kind, Kind::Folder | Kind::Project) {
-            Command::Terminal(hit.path)
+            Command::Terminal(hit.path.clone())
         } else {
-            open(Action::Reveal(hit.path))
+            open(Action::Reveal(hit.path.clone()))
         }),
         label: None,
         alt_label: None,
+        more: vec![Command::Reprocess(hit.path)],
     }
 }
 
@@ -1142,14 +1176,23 @@ pub async fn search(
     launcher.search(query.trim_start(), &on_results).await
 }
 
+/// Which of a row's actions to take.
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Choice {
+    Action,
+    Alt,
+    More(usize),
+}
+
 #[tauri::command]
 pub async fn activate(
     app: AppHandle,
     launcher: State<'_, Launcher>,
     id: String,
-    alt: bool,
+    choice: Choice,
 ) -> Result<Outcome, String> {
-    launcher.activate(&app, &id, alt).await
+    launcher.activate(&app, &id, choice).await
 }
 
 #[tauri::command]
@@ -1342,6 +1385,7 @@ mod tests {
             alt: None,
             label: None,
             alt_label: None,
+            more: Vec::new(),
         };
         let first = results.begin();
         let old = results.add(first, draft()).unwrap().id;

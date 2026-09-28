@@ -5,7 +5,7 @@ import { Search, TriangleAlert } from "lucide-react";
 import { type KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { applyLook } from "./look";
 import { Results, rowId } from "./Results";
-import type { Outcome, Row, Section, View } from "./types";
+import type { Choice, Outcome, Row, Section, View } from "./types";
 import "./styles.css";
 
 const isMac = navigator.userAgent.includes("Mac");
@@ -21,6 +21,17 @@ const PROGRESS: Record<string, string> = {
 
 type Notice = { text: string; warning: boolean };
 
+/** The actions of a row, as the Ctrl + K list shows them. */
+type Menu = { row: Row; selected: number };
+
+function actionsOf(row: Row): { label: string; choice: Choice }[] {
+  return [
+    { label: row.action, choice: "action" as Choice },
+    ...(row.alt ? [{ label: row.alt, choice: "alt" as Choice }] : []),
+    ...row.more.map((label, n) => ({ label, choice: { more: n } as Choice })),
+  ];
+}
+
 export default function App() {
   const [query, setQuery] = useState("");
   const [sections, setSections] = useState<Section[]>([]);
@@ -29,6 +40,7 @@ export default function App() {
   const [notice, setNotice] = useState<Notice | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [round, setRound] = useState(0);
+  const [menu, setMenu] = useState<Menu | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const panel = useRef<HTMLElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -142,12 +154,13 @@ export default function App() {
     row?.scrollIntoView({ block: "nearest" });
   }, [chosen]);
 
-  async function choose(row: Row, alt: boolean) {
-    const label = alt ? row.alt : row.action;
+  async function choose(row: Row, choice: Choice) {
+    const label = choice === "action" ? row.action : choice === "alt" ? row.alt : row.more[choice.more];
     if (!label || busy) return;
+    setMenu(null);
     setBusy(PROGRESS[label] ?? null);
     try {
-      const outcome = await invoke<Outcome>("activate", { id: row.id, alt });
+      const outcome = await invoke<Outcome>("activate", { id: row.id, choice });
       if (outcome.then === "fill") {
         fill(outcome.text);
       } else if (outcome.then === "refresh") {
@@ -162,6 +175,29 @@ export default function App() {
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    const actionsKey = event.key === "k" && (event.ctrlKey || event.metaKey);
+    if (menu) {
+      const actions = actionsOf(menu.row);
+      const moveTo = (to: number) => {
+        event.preventDefault();
+        setMenu({ ...menu, selected: Math.max(0, Math.min(actions.length - 1, to)) });
+      };
+      if (event.key === "ArrowDown") return moveTo(menu.selected + 1);
+      if (event.key === "ArrowUp") return moveTo(menu.selected - 1);
+      if (event.key === "Enter") {
+        event.preventDefault();
+        return void choose(menu.row, actions[menu.selected].choice);
+      }
+      if (event.key === "Escape" || actionsKey) {
+        event.preventDefault();
+        return setMenu(null);
+      }
+      return;
+    }
+    if (actionsKey && chosen) {
+      event.preventDefault();
+      return setMenu({ row: chosen, selected: 0 });
+    }
     const move = (by: number) => {
       event.preventDefault();
       setSelected(Math.max(0, Math.min(rows.length - 1, current + by)));
@@ -179,7 +215,7 @@ export default function App() {
       case "Enter":
         if (chosen) {
           event.preventDefault();
-          choose(chosen, event.ctrlKey || event.metaKey);
+          choose(chosen, event.ctrlKey || event.metaKey ? "alt" : "action");
         }
         return;
       case "Escape":
@@ -206,6 +242,7 @@ export default function App() {
           onChange={(event) => {
             setQuery(event.target.value);
             setNotice(null);
+            setMenu(null);
           }}
           onKeyDown={onKeyDown}
           placeholder="Search"
@@ -241,14 +278,27 @@ export default function App() {
         </div>
       )}
 
-      {visible.length > 0 && (
+      {menu ? (
         <Results
-          sections={visible}
-          selected={current}
+          sections={[actionsSection(menu.row)]}
+          selected={menu.selected}
           listRef={list}
-          onHover={setSelected}
-          onChoose={choose}
+          onHover={(selected) => setMenu({ ...menu, selected })}
+          onChoose={(row) => {
+            const n = Number(row.id.slice(ACTION_ID.length));
+            choose(menu.row, actionsOf(menu.row)[n].choice);
+          }}
         />
+      ) : (
+        visible.length > 0 && (
+          <Results
+            sections={visible}
+            selected={current}
+            listRef={list}
+            onHover={setSelected}
+            onChoose={(row, alt) => choose(row, alt ? "alt" : "action")}
+          />
+        )
       )}
 
       {rows.length > 0 && (
@@ -266,12 +316,40 @@ export default function App() {
                   <kbd>{isMac ? "⌘ ↵" : "Ctrl ↵"}</kbd>
                 </span>
               )}
+              {chosen.more.length > 0 && (
+                <span>
+                  Actions
+                  <kbd>{isMac ? "⌘ K" : "Ctrl K"}</kbd>
+                </span>
+              )}
             </span>
           )}
         </footer>
       )}
     </main>
   );
+}
+
+const ACTION_ID = "action-";
+
+/** A row's actions as a list of rows of their own. */
+function actionsSection(row: Row): Section {
+  return {
+    key: "actions",
+    title: `Actions for ${row.title}`,
+    rank: 0,
+    rows: actionsOf(row).map(({ label }, n) => ({
+      ...row,
+      id: `${ACTION_ID}${n}`,
+      title: label,
+      subtitle: null,
+      meta: null,
+      more: [],
+    })),
+    message: null,
+    warning: false,
+    pending: false,
+  };
 }
 
 function arrange(sections: Section[]): Section[] {

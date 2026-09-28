@@ -66,11 +66,19 @@ class WebDriver:
         return next(iter(found.values()))
 
     def click(self, css: str):
-        self.call("POST", f"/session/{self.session}/element/{self.element(css)}/click", {})
+        element = self.element(css)
+        # WebKit's driver doesn't scroll a list to what it clicks.
+        self.run("document.querySelector(arguments[0]).scrollIntoView({block: 'center'})", css)
+        self.call("POST", f"/session/{self.session}/element/{element}/click", {})
 
     def type(self, css: str, text: str):
         element = self.element(css)
         self.call("POST", f"/session/{self.session}/element/{element}/clear", {})
+        self.call("POST", f"/session/{self.session}/element/{element}/value", {"text": text})
+
+    def keys(self, css: str, text: str):
+        """Sends keys to an element without emptying it first."""
+        element = self.element(css)
         self.call("POST", f"/session/{self.session}/element/{element}/value", {"text": text})
 
     def quit(self):
@@ -282,6 +290,126 @@ def check_live_index(driver: WebDriver, home: Path):
     print("ok  new and renamed files show up within seconds")
 
 
+CONTROL, NULL = "\ue009", "\ue000"
+
+
+def check_actions(driver: WebDriver):
+    """Ctrl + K lists a result's actions, and Read again reads the file again."""
+    search(driver, "rsync", lambda r: r["title"] == "backupPhotos.sh", "the script")
+    keys = driver.run("return document.querySelector('.footer .keys')?.textContent ?? ''")
+    assert "Actions" in keys, keys
+    driver.keys("input[aria-label='Search']", f"{CONTROL}k{NULL}")
+    titles = wait_for(
+        lambda: [row["title"] for row in driver.run(ROWS)] if driver.run(
+            "return document.querySelector('.section-title')?.textContent ?? ''"
+        ).startswith("Actions for") else None,
+        10,
+        "the actions list",
+    )
+    assert titles[-1] == "Read again", titles
+    for _ in titles[1:]:
+        driver.keys("input[aria-label='Search']", "\ue015")  # ↓
+    driver.keys("input[aria-label='Search']", "\ue007")  # Enter
+    notice = wait_for(
+        lambda: driver.run("return document.querySelector('.notes')?.textContent ?? ''"), 10, "a notice"
+    )
+    assert notice == "Reading backupPhotos.sh again", notice
+    search(driver, "rsync", lambda r: r["title"] == "backupPhotos.sh", "the script, read again")
+    print("ok  Ctrl + K lists actions, and Read again reads a file again")
+
+
+# The Settings window is built from shadcn controls: a select is a button that opens
+# a list of options, and a switch is a button with aria-checked.
+def trigger(label: str) -> str:
+    return f"[data-slot='select-trigger'][aria-label='{label}']"
+
+
+def choice(driver: WebDriver, label: str) -> str:
+    value = f"{trigger(label)} [data-slot='select-value']"
+    return driver.run(f"return document.querySelector(\"{value}\")?.textContent ?? ''")
+
+
+def click_when_clear(driver: WebDriver, css: str):
+    """Clicks once nothing covers the element, as a panel that's still unfolding can."""
+
+    def attempt():
+        try:
+            driver.click(css)
+            return True
+        except RuntimeError as err:
+            if "intercepted" not in str(err):
+                raise
+            return None
+
+    try:
+        wait_for(attempt, 10, f"{css} to be clickable")
+    except AssertionError as err:
+        cover = driver.run(
+            """const r = document.querySelector(arguments[0]).getBoundingClientRect();
+            return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.outerHTML.slice(0, 200);""",
+            css,
+        )
+        raise AssertionError(f"{err}; covered by {cover}") from None
+
+
+def choose(driver: WebDriver, label: str, option: str):
+    click_when_clear(driver, trigger(label))
+    # Options have no names of their own, so the one wanted is marked to be clicked.
+    wait_for(
+        lambda: driver.run(
+            """document.querySelector('[data-e2e-pick]')?.removeAttribute('data-e2e-pick');
+            const item = [...document.querySelectorAll("[data-slot='select-content'][data-open] [data-slot='select-item']")]
+                .find(i => i.textContent === arguments[0]);
+            item?.setAttribute('data-e2e-pick', '');
+            return !!item;""",
+            option,
+        ),
+        10,
+        f"{option!r} in {label}",
+    )
+    click_when_clear(driver, "[data-e2e-pick]")
+    wait_for(lambda: choice(driver, label) == option, 10, f"{label} to show {option!r}")
+    # A scripted click picks the option but can leave the list open, as when the
+    # option puts the focus elsewhere; Escape closes it.
+    shown = "[...document.querySelectorAll(\"[data-slot='select-content']\")].filter(e => !e.parentElement.hidden)"
+    escape = "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))"
+    wait_for(
+        lambda: driver.run(
+            f"""const shown = {shown};
+            if (shown.some(e => !e.hasAttribute('data-closed'))) {escape};
+            return shown.length === 0;"""
+        ),
+        10,
+        f"the list of {label} to close",
+    )
+
+
+def press(driver: WebDriver, css: str):
+    """Clicks through the page's own events: popups closing over the form can take a
+    native click."""
+    found = driver.run("const el = document.querySelector(arguments[0]); if (el) el.click(); return !!el;", css)
+    assert found, f"nothing matches {css}"
+
+
+def click_text(driver: WebDriver, tag: str, text: str):
+    found = driver.run(
+        f"""const el = [...document.querySelectorAll("{tag}")].find(e => e.textContent === arguments[0]);
+        if (el) el.click();
+        return !!el;""",
+        text,
+    )
+    assert found, f"no {tag} saying {text!r}"
+
+
+def save(driver: WebDriver):
+    click_text(driver, "button", "Save")
+    wait_for(
+        lambda: driver.run("return document.querySelector('footer [role=status]')?.textContent") == "Saved",
+        10,
+        "Saved",
+    )
+
+
 def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Path):
     # Asking the running Sonar, as a desktop shortcut would, opens its Settings window.
     subprocess.run([str(app), "--settings"], env=env, timeout=15, check=True)
@@ -294,40 +422,45 @@ def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Pat
 
     wait_for(switch_to_settings, 15, "the Settings window")
 
-    title = wait_for(
-        lambda: driver.run("return document.querySelector('.titlebar h1')?.textContent"), 15, "the title bar"
-    )
+    title = wait_for(lambda: driver.run("return document.querySelector('header h1')?.textContent"), 15, "the title bar")
     assert title == "Settings", title
-    buttons = driver.run("return [...document.querySelectorAll('.window-buttons button')].map(b => b.ariaLabel)")
+    buttons = driver.run("return [...document.querySelectorAll('header button')].map(b => b.ariaLabel)")
     assert buttons == ["Minimize", "Close"], buttons
     print("ok  the window's own title bar")
 
     driver.click("button[aria-label='Browser settings']")
-    shown = driver.run("return document.querySelector(\"button[aria-label='Search history']\").ariaChecked")
+    shown = driver.run("return document.querySelector(\"[aria-label='Search history']\").ariaChecked")
     assert shown == "true", shown
     driver.click("button[aria-label='Web search settings']")
-    shown = driver.run("return document.querySelector(\"select[aria-label='Listed first']\").value")
-    assert shown == "github", shown
+    assert choice(driver, "Listed first") == "GitHub", choice(driver, "Listed first")
     driver.click("button[aria-label='Calculator settings']")
-    shown = driver.run("return document.querySelector(\"select[aria-label='Your currency']\").value")
-    assert shown == "JPY", shown
+    assert "JPY" in choice(driver, "Your currency"), choice(driver, "Your currency")
     print("ok  settings form shows the saved values")
 
-    driver.click("select[aria-label='Listed first'] option[value='duckduckgo']")
-    driver.click("button[aria-label='Download exchange rates']")
-    driver.click("select[aria-label='Code editor'] option:last-child")
+    choose(driver, "Listed first", "DuckDuckGo")
+    driver.click("[aria-label='Download exchange rates']")
+    choose(driver, "Code editor", "Other command…")
     driver.type("input[aria-label='Code editor command']", "code --new-window")
-    driver.click("button.primary")
-    wait_for(lambda: driver.run("return document.querySelector('.status')?.textContent") == "Saved", 10, "Saved")
+    click_text(driver, "button", "Main screen")
+    press(driver, "[role='switch'][aria-label='Search by meaning']")
+    press(driver, "button[aria-label=\"What's indexed\"]")
+    choose(driver, "Spreadsheets", "Name")
+    save(driver)
     text = settings.read_text()
     assert 'first = "duckduckgo"' in text and "rates = false" in text, text
     assert 'currency = "JPY"' in text, text
     assert '[files]\neditor = "code --new-window"' in text, text
-    print("ok  saving writes plugin settings and the editor to settings.toml")
+    assert 'monitor = "main"' in text, text
+    assert "[meaning]\nenabled = true" in text, text
+    assert '[index.kinds]\nsheet = "name"' in text, text
+    print("ok  saving writes plugin settings, the editor, the screen, meaning and kinds to settings.toml")
 
-    driver.click("select[aria-label='Listed first'] option[value='google']")
-    driver.click("button.primary")
-    wait_for(lambda: 'first = "' not in settings.read_text(), 10, "the default to be left out")
+    choose(driver, "Listed first", "Google")
+    choose(driver, "Spreadsheets", "Name and words")
+    press(driver, "[role='switch'][aria-label='Search by meaning']")
+    save(driver)
+    text = settings.read_text()
+    assert 'first = "' not in text and "\n[index.kinds]" not in text, text
     print("ok  a value set back to its default is left out")
 
 
@@ -354,6 +487,7 @@ def main():
     driver = WebDriver(app, env, log)
     try:
         check_search_window(driver)
+        check_actions(driver)
         check_live_index(driver, root / "home")
         check_settings_window(driver, app, env, root / "home" / ".config" / "sonar" / "settings.toml")
     except BaseException:

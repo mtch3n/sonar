@@ -442,3 +442,29 @@ fn embedding_stops_when_asked() {
     assert!(stats.stopped);
     assert_eq!(model.calls, 0);
 }
+
+#[test]
+fn forgetting_reads_and_embeds_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(&home, "Documents/a.md", "photos");
+    write(&home, "Documents/b.md", "backup");
+    write(&home, "Other/c.md", "rsync");
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    let options = ScanOptions::default();
+    index.scan(&home, &rules, &options).unwrap();
+    let mut model = Topics { calls: 0 };
+    index.embed(&mut model, &mut |_| true).unwrap();
+    assert_eq!(index.pending_meaning("topics").unwrap(), (0, 0));
+
+    assert_eq!(
+        index.forget(&home.join("Documents")).unwrap(),
+        3,
+        "the folder and its files"
+    );
+    index.scan(&home, &rules, &options).unwrap();
+    assert_eq!(index.pending_meaning("topics").unwrap(), (2, 2));
+    assert_eq!(find(&index, &home, "photos"), ["a.md"]);
+    assert_eq!(index.forget(&home.join("Other/c.md")).unwrap(), 1);
+}

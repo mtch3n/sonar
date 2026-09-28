@@ -121,6 +121,13 @@ impl Index {
         meaning::embed(&mut self.conn, embedder, progress)
     }
 
+    /// Forgets what was learned from the file at `path`, or from everything under
+    /// it, so the next scan reads and embeds it afresh. Returns how many files that
+    /// covers.
+    pub fn forget(&mut self, path: &Path) -> Result<u64> {
+        scan::forget(&mut self.conn, path)
+    }
+
     /// How many names and files model `model` has yet to embed.
     pub fn pending_meaning(&self, model: &str) -> Result<(u64, u64)> {
         meaning::pending(&self.conn, model)

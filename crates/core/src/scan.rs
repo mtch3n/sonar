@@ -5,7 +5,7 @@ use std::{
     time::UNIX_EPOCH,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ignore::WalkBuilder;
 use rusqlite::{Connection, OptionalExtension, Statement, Transaction, params};
 
@@ -180,6 +180,35 @@ pub(crate) fn scan(
     forget_unused(&tx)?;
     tx.commit()?;
     Ok(stats)
+}
+
+pub(crate) fn forget(conn: &mut Connection, path: &Path) -> Result<u64> {
+    let path = path.to_str().context("the path isn't UTF-8")?;
+    let path = path.trim_end_matches(std::path::MAIN_SEPARATOR);
+    let under = format!("{path}{}", std::path::MAIN_SEPARATOR);
+    // Paths under `path` sort between these two.
+    let after = format!("{path}{}", (std::path::MAIN_SEPARATOR as u8 + 1) as char);
+    let tx = conn.transaction()?;
+    let chosen = "(path = ?1 OR (path >= ?2 AND path < ?3))";
+    for sql in [
+        "DELETE FROM cache.vectors WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
+        "DELETE FROM cache.embedded WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
+        "DELETE FROM cache.contents WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
+        "DELETE FROM cache.names WHERE name IN (SELECT name FROM main.files WHERE {chosen})",
+    ] {
+        tx.execute(
+            &sql.replace("{chosen}", chosen),
+            params![path, under, after],
+        )?;
+    }
+    // A time no file has makes the next scan take every one as changed.
+    let files = tx.execute(
+        &format!("UPDATE files SET mtime_ns = -1 WHERE {chosen}"),
+        params![path, under, after],
+    )?;
+    tx.execute("UPDATE cache.vectors_version SET version = version + 1", [])?;
+    tx.commit()?;
+    Ok(files as u64)
 }
 
 /// How long the cache keeps what it learned from content no file has anymore, so
