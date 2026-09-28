@@ -85,9 +85,11 @@ Plugins add results of their own. Sonar ships with these, which can be turned of
 - DNS: `dns example.com` looks up its addresses, `dns example.com mx` or `txt`, `ns`, `cname`, `soa`, `srv`, `caa` other records, and `dns 1.1.1.1` an address's name. It asks your system's DNS server, or the one set under DNS in Settings; `@9.9.9.9` in the search asks another. Enter copies a record
 - Services, on Linux: `svc docker` lists systemd services, running ones first, the system's and your own; Enter starts or stops one and Ctrl + Enter follows its logs in your terminal. A word first does just that: `svc restart docker`, `svc enable sshd`, `svc disable cups`, `svc logs nginx`. For the system's services, systemd asks for your password through the desktop's usual dialog
 - Windows, on GNOME: `w` lists your open windows, most recent first; Enter switches to one, Ctrl + Enter closes it
-- Clipboard, on GNOME: `clip` lists what you copied, newest first, and finds text in it: `clip invoice`. Enter copies it again, Ctrl + Enter removes it from the history. Sonar keeps the last 200 copies of text, and skips passwords that password managers like KeePassXC mark as secret
+- Clipboard, on Linux: `clip` lists what you copied, newest first, and finds text in it: `clip invoice`. Enter copies it again, Ctrl + Enter removes it from the history. Sonar keeps the last 200 copies of text, and skips passwords that password managers like KeePassXC mark as secret
 
-GNOME only shows other apps' windows and clipboard to its own extensions, so the first time you type `w` or `clip`, Sonar offers to install a small one; log out and back in afterwards. The clipboard history can stand in for a clipboard extension such as Clipboard Indicator: bind Super + V to `sonar-app --query "clip "` in Settings → Keyboard → Custom Shortcuts.
+The clipboard history can stand in for a clipboard extension such as Clipboard Indicator: bind Super + V to `sonar-app --query "clip "` in Settings → Keyboard → Custom Shortcuts. It needs no extension: Sonar watches the copy of the clipboard that Wayland desktops keep for X11 apps (XWayland), which works in GNOME and KDE alike.
+
+GNOME only shows other apps' windows to its own extensions, so the first time you type `w`, Sonar offers to install a small one; log out and back in afterwards.
 
 To use the window list in place of Alt + Tab, move GNOME's switcher to another key and bind Alt + Tab to Sonar with the window list already typed:
 

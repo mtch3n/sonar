@@ -14,8 +14,6 @@ mod updater;
 mod watcher;
 mod window;
 
-use std::sync::{Arc, RwLock};
-
 use sonar_core::Paths;
 use sonar_plugins::clipboard;
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
@@ -106,6 +104,7 @@ fn main() {
             let tray = tray::create(app.handle())?;
             app.manage(tray.clone());
 
+            #[cfg(target_os = "linux")]
             record_copies(&paths, &settings);
             let handle = app.handle().clone();
             let rescan_every = move || {
@@ -167,8 +166,10 @@ fn clipboard_dir(paths: &Paths) -> std::path::PathBuf {
     paths.plugin_data.join(clipboard::ID)
 }
 
-/// Keeps what's copied for the clipboard plugin, while it's turned on.
-fn record_copies(paths: &Paths, settings: &Arc<RwLock<settings::Settings>>) {
+/// Keeps what's copied for the clipboard plugin, while it's turned on. XWayland can
+/// stop and start again with the desktop, so the watch starts again when it ends.
+#[cfg(target_os = "linux")]
+fn record_copies(paths: &Paths, settings: &std::sync::Arc<std::sync::RwLock<settings::Settings>>) {
     let dir = clipboard_dir(paths);
     let settings = settings.clone();
     std::thread::spawn(move || {
@@ -177,8 +178,15 @@ fn record_copies(paths: &Paths, settings: &Arc<RwLock<settings::Settings>>) {
                 .read()
                 .is_ok_and(|s| s.plugin(clipboard::ID).enabled)
         };
-        if let Err(err) = clipboard::record(&dir, on) {
-            eprintln!("sonar: couldn't watch the clipboard: {err}");
+        let mut said = None;
+        loop {
+            if let Err(err) = clipboard::record(&dir, on)
+                && said.as_ref() != Some(&err)
+            {
+                eprintln!("sonar: {err}");
+                said = Some(err);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(10));
         }
     });
 }

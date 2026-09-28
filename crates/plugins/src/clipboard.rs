@@ -1,7 +1,7 @@
 //! Clipboard history: `clip` lists what you copied, newest first, and Enter copies it
-//! again. Sonar's tray app keeps the history; on GNOME its Shell extension tells it
-//! about each copy, because GNOME on Wayland keeps other programs from watching the
-//! clipboard.
+//! again. Sonar's tray app keeps the history. It watches the clipboard through X11,
+//! which Wayland desktops mirror their clipboard into for XWayland: GNOME offers no
+//! Wayland way for a program without focus to watch it.
 
 use std::{
     fs,
@@ -23,11 +23,6 @@ const KEEP: usize = 200;
 const LONGEST: usize = 256 * 1024;
 /// The most copies shown for one query.
 const LIMIT: usize = 50;
-/// Where the extension announces copies on the session bus.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-const PATH: &str = "/io/github/mtch3n/Sonar/Clipboard";
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-const INTERFACE: &str = "io.github.mtch3n.Sonar.Clipboard";
 
 pub fn settings() -> Vec<Setting> {
     Vec::new()
@@ -89,16 +84,6 @@ pub fn forget(dir: &Path, copied: Option<i64>) -> Result<(), String> {
     save(dir, &copies)
 }
 
-/// Why copies aren't being recorded.
-#[derive(Debug, PartialEq)]
-enum Unavailable {
-    /// Not GNOME, whose extension is the only way Sonar knows so far.
-    Desktop,
-    /// GNOME, but the extension isn't installed, is too old, or hasn't loaded yet.
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    Extension,
-}
-
 /// Runs the clipboard plugin, which `sonar-app --plugin clipboard` does. The history
 /// is read again for every query, so new copies show at once.
 pub fn serve() {
@@ -108,64 +93,35 @@ pub fn serve() {
         .unwrap_or_default();
     crate::serve(|query, _| {
         let now = jiff::Timestamp::now().as_millisecond();
-        answer(query, history(&dir), recording(), &program, now)
+        Ok(answer(query, history(&dir), &program, now))
     });
 }
 
-fn answer(
-    query: &str,
-    copies: Vec<Copy>,
-    recording: Result<(), Unavailable>,
-    program: &Path,
-    now: i64,
-) -> Result<Vec<Item>, String> {
-    let mut items = Vec::new();
-    match recording {
-        Ok(()) => {}
-        Err(Unavailable::Desktop) => {
-            return Err("Clipboard history works on GNOME for now".into());
-        }
-        Err(Unavailable::Extension) => {
-            let mut item = Item::new(
-                "Install the Sonar extension for GNOME",
-                Action::Run(vec![
-                    program.to_string_lossy().into_owned(),
-                    "--install-gnome-extension".into(),
-                ]),
-            );
-            item.subtitle = Some(
-                "GNOME only lets its own extensions see what you copy. Log out and back in afterwards"
-                    .into(),
-            );
-            item.icon = Some("clipboard".into());
-            item.label = Some("Install".into());
-            items.push(item);
-        }
-    }
+/// The copies with every word of `query` in them, newest first. Enter copies one
+/// again and Ctrl+Enter forgets it.
+fn answer(query: &str, copies: Vec<Copy>, program: &Path, now: i64) -> Vec<Item> {
     let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-    items.extend(
-        copies
-            .into_iter()
-            .filter(|c| {
-                let text = c.text.to_lowercase();
-                words.iter().all(|w| text.contains(w.as_str()))
-            })
-            .take(LIMIT)
-            .map(|c| {
-                let forget = vec![
-                    program.to_string_lossy().into_owned(),
-                    "--forget-copy".into(),
-                    c.copied.to_string(),
-                ];
-                let mut item = Item::new(title(&c.text), Action::Copy(c.text.clone()));
-                item.subtitle = Some(subtitle(&c, now));
-                item.icon = Some("clipboard".into());
-                item.alt = Some(Action::Run(forget));
-                item.alt_label = Some("Remove from history".into());
-                item
-            }),
-    );
-    Ok(items)
+    copies
+        .into_iter()
+        .filter(|c| {
+            let text = c.text.to_lowercase();
+            words.iter().all(|w| text.contains(w.as_str()))
+        })
+        .take(LIMIT)
+        .map(|c| {
+            let forget = vec![
+                program.to_string_lossy().into_owned(),
+                "--forget-copy".into(),
+                c.copied.to_string(),
+            ];
+            let mut item = Item::new(title(&c.text), Action::Copy(c.text.clone()));
+            item.subtitle = Some(subtitle(&c, now));
+            item.icon = Some("clipboard".into());
+            item.alt = Some(Action::Run(forget));
+            item.alt_label = Some("Remove from history".into());
+            item
+        })
+        .collect()
 }
 
 /// The first line with text on it, shortened to fit one row.
@@ -200,77 +156,117 @@ fn subtitle(copy: &Copy, now: i64) -> String {
     }
 }
 
-/// Whether copies are reaching Sonar: on GNOME, whether its extension announces them.
-#[cfg(target_os = "linux")]
-fn recording() -> Result<(), Unavailable> {
-    if !gnome() {
-        return Err(Unavailable::Desktop);
-    }
-    let known = zbus::blocking::Connection::session()
-        .and_then(|bus| {
-            bus.call_method(
-                Some("org.gnome.Shell"),
-                PATH,
-                Some("org.freedesktop.DBus.Introspectable"),
-                "Introspect",
-                &(),
-            )
-        })
-        .and_then(|reply| reply.body().deserialize::<String>())
-        .is_ok_and(|xml| xml.contains(INTERFACE));
-    if known {
-        Ok(())
-    } else {
-        Err(Unavailable::Extension)
-    }
-}
-
-#[cfg(not(target_os = "linux"))]
-fn recording() -> Result<(), Unavailable> {
-    Err(Unavailable::Desktop)
-}
-
-#[cfg(target_os = "linux")]
-fn gnome() -> bool {
-    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.contains("GNOME"))
-}
-
-/// Records each copy GNOME Shell announces into the history in `dir`, for as long as
-/// the session lasts; `on` says whether to keep them. Returns at once off GNOME.
+/// Records each text copied into the history in `dir`, for as long as the X server
+/// lasts; `on` says whether to keep them. XFixes says when the clipboard changes
+/// hands, then Sonar asks the new owner what it holds, skipping what password
+/// managers mark as secret.
 #[cfg(target_os = "linux")]
 pub fn record(dir: &Path, on: impl Fn() -> bool) -> Result<(), String> {
-    if !gnome() {
-        return Ok(());
+    use x11rb::{
+        connection::Connection,
+        protocol::{
+            Event,
+            xfixes::{ConnectionExt as _, SelectionEventMask},
+            xproto::{AtomEnum, ConnectionExt as _, CreateWindowAux, WindowClass},
+        },
+    };
+
+    /// What Sonar last asked the clipboard's owner for.
+    enum Asked {
+        Nothing,
+        Targets(u32),
+        Text,
     }
-    let bus = zbus::blocking::Connection::session().map_err(|err| err.to_string())?;
-    let rule = zbus::MatchRule::builder()
-        .msg_type(zbus::message::Type::Signal)
-        .sender("org.gnome.Shell")
-        .and_then(|b| b.path(PATH))
-        .and_then(|b| b.interface(INTERFACE))
-        .and_then(|b| b.member("Copied"))
-        .map_err(|err| err.to_string())?
-        .build();
-    let signals = zbus::blocking::MessageIterator::for_match_rule(rule, &bus, None)
-        .map_err(|err| err.to_string())?;
-    for signal in signals {
-        let Ok(signal) = signal else { continue };
-        let Ok(text) = signal.body().deserialize::<String>() else {
-            continue;
-        };
-        if on() {
-            let now = jiff::Timestamp::now().as_millisecond();
-            if let Err(err) = remember(dir, &text, now) {
-                eprintln!("sonar: couldn't keep a copy: {err}");
+
+    let failed = |err: &dyn std::fmt::Display| format!("couldn't watch the clipboard: {err}");
+    let (conn, screen) = x11rb::connect(None).map_err(|e| failed(&e))?;
+    let root = conn.setup().roots[screen].root;
+    let window = conn.generate_id().map_err(|e| failed(&e))?;
+    conn.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        window,
+        root,
+        0,
+        0,
+        1,
+        1,
+        0,
+        WindowClass::INPUT_ONLY,
+        x11rb::COPY_FROM_PARENT,
+        &CreateWindowAux::new(),
+    )
+    .map_err(|e| failed(&e))?;
+    conn.xfixes_query_version(5, 0)
+        .map_err(|e| failed(&e))?
+        .reply()
+        .map_err(|e| failed(&e))?;
+    let atom = |name: &[u8]| -> Result<u32, String> {
+        Ok(conn
+            .intern_atom(false, name)
+            .map_err(|e| failed(&e))?
+            .reply()
+            .map_err(|e| failed(&e))?
+            .atom)
+    };
+    let clipboard = atom(b"CLIPBOARD")?;
+    let targets = atom(b"TARGETS")?;
+    let utf8 = atom(b"UTF8_STRING")?;
+    let secret = atom(b"x-kde-passwordManagerHint")?;
+    let incr = atom(b"INCR")?;
+    let property = atom(b"SONAR_CLIPBOARD")?;
+    conn.xfixes_select_selection_input(window, clipboard, SelectionEventMask::SET_SELECTION_OWNER)
+        .map_err(|e| failed(&e))?;
+    conn.flush().map_err(|e| failed(&e))?;
+
+    let mut asked = Asked::Nothing;
+    loop {
+        match conn.wait_for_event().map_err(|e| failed(&e))? {
+            Event::XfixesSelectionNotify(e) if e.owner != x11rb::NONE => {
+                conn.convert_selection(window, clipboard, targets, property, e.selection_timestamp)
+                    .map_err(|e| failed(&e))?;
+                conn.flush().map_err(|e| failed(&e))?;
+                asked = Asked::Targets(e.selection_timestamp);
             }
+            Event::SelectionNotify(e) if e.requestor == window => {
+                if e.property == x11rb::NONE {
+                    asked = Asked::Nothing;
+                    continue;
+                }
+                let reply = conn
+                    .get_property(true, window, property, AtomEnum::ANY, 0, u32::MAX / 4)
+                    .map_err(|e| failed(&e))?
+                    .reply()
+                    .map_err(|e| failed(&e))?;
+                asked = match asked {
+                    Asked::Targets(time) => {
+                        let offered: Vec<u32> =
+                            reply.value32().map(Iterator::collect).unwrap_or_default();
+                        if offered.contains(&secret) || !offered.contains(&utf8) {
+                            Asked::Nothing
+                        } else {
+                            conn.convert_selection(window, clipboard, utf8, property, time)
+                                .map_err(|e| failed(&e))?;
+                            conn.flush().map_err(|e| failed(&e))?;
+                            Asked::Text
+                        }
+                    }
+                    Asked::Text => {
+                        // Text sent in pieces is longer than the history keeps.
+                        if reply.type_ != incr && on() {
+                            let text = String::from_utf8_lossy(&reply.value);
+                            let now = jiff::Timestamp::now().as_millisecond();
+                            if let Err(err) = remember(dir, &text, now) {
+                                eprintln!("sonar: couldn't keep a copy: {err}");
+                            }
+                        }
+                        Asked::Nothing
+                    }
+                    Asked::Nothing => Asked::Nothing,
+                };
+            }
+            _ => {}
         }
     }
-    Ok(())
-}
-
-#[cfg(not(target_os = "linux"))]
-pub fn record(_: &Path, _: impl Fn() -> bool) -> Result<(), String> {
-    Ok(())
 }
 
 #[cfg(test)]
@@ -327,7 +323,7 @@ mod tests {
             },
         ];
         let program = Path::new("/opt/sonar-app");
-        let all = answer("", copies.clone(), Ok(()), program, now).unwrap();
+        let all = answer("", copies.clone(), program, now);
         assert_eq!(titles(&all), ["fn main() {", "https://example.com/Invoice"]);
         assert_eq!(all[0].subtitle.as_deref(), Some("3 min ago · 2 lines"));
         assert_eq!(all[1].subtitle.as_deref(), Some("2 h ago"));
@@ -340,24 +336,31 @@ mod tests {
                 (now - 120 * MINUTE).to_string()
             ]))
         );
-        let found = answer("INVOICE example", copies, Ok(()), program, now).unwrap();
+        let found = answer("INVOICE example", copies, program, now);
         assert_eq!(titles(&found), ["https://example.com/Invoice"]);
     }
 
     #[test]
-    fn offers_the_extension_or_explains_the_desktop() {
-        let program = Path::new("/opt/sonar-app");
-        let offer = answer("", Vec::new(), Err(Unavailable::Extension), program, 0).unwrap();
+    #[cfg(target_os = "linux")]
+    #[ignore = "needs a desktop session with wl-copy"]
+    fn records_what_is_copied() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_owned();
+        std::thread::spawn(move || record(&path, || true));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let text = format!("sonar test {}", std::process::id());
+        // wl-copy stays behind to serve the clipboard; it mustn't hold the test's output.
+        let mut copy = std::process::Command::new("wl-copy")
+            .arg(&text)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        copy.wait().unwrap();
+        std::thread::sleep(std::time::Duration::from_secs(1));
         assert_eq!(
-            offer[0].action,
-            Action::Run(vec![
-                "/opt/sonar-app".into(),
-                "--install-gnome-extension".into()
-            ])
-        );
-        assert_eq!(
-            answer("", Vec::new(), Err(Unavailable::Desktop), program, 0).unwrap_err(),
-            "Clipboard history works on GNOME for now"
+            history(dir.path()).first().map(|c| c.text.as_str()),
+            Some(text.as_str())
         );
     }
 }

@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.4.2] - 2026-09-28
+
+- Clipboard history no longer needs Sonar's GNOME extension: Sonar watches the clipboard through XWayland, so it works on any Linux desktop from the first copy. The extension is back to listing windows only
+
 ## [0.4.1] - 2026-09-28
 
 Plugins:
