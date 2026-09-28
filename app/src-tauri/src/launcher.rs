@@ -694,11 +694,9 @@ impl Session {
             format!("Browser: {problem}; fix it under [plugins.{BROWSER}] in settings.toml")
         }));
         let browser = browser_config.enabled.then(|| {
-            let history = values[browser::HISTORY] == true;
-            let results = values[browser::RESULTS].as_u64().unwrap_or(3) as usize;
             (
                 browser_config.keyword.clone(),
-                Arc::new(Browsers::load(history, results)),
+                Arc::new(Browsers::load(&values)),
             )
         });
         let (manifests, problems) = sonar_plugins::discover(dir);

@@ -8,26 +8,36 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rusqlite::{Connection, OpenFlags, params_from_iter, types::Value};
+use rusqlite::{Connection, OpenFlags, params_from_iter};
 use serde::Deserialize;
+use serde_json::{Map, Value};
 
 use crate::{Action, Field, Item, Setting};
 
 /// The browser integration's id in `settings.toml`.
 pub const ID: &str = "browser";
-/// Its settings keys.
+/// Its settings keys; each profile also has its own, from [`Profile::key`].
+pub const BOOKMARKS: &str = "bookmarks";
 pub const HISTORY: &str = "history";
 pub const RESULTS: &str = "results";
 
 /// Words shorter than this, all together, match too much to be worth showing.
 const MIN_QUERY: usize = 2;
 
+/// What to search, how many results to show, and a switch for every profile found.
 pub fn settings() -> Vec<Setting> {
-    vec![
+    let profiles = installed_profiles();
+    let mut settings = vec![
+        Setting {
+            key: BOOKMARKS.into(),
+            title: "Search bookmarks".into(),
+            description: None,
+            field: Field::Toggle { default: true },
+        },
         Setting {
             key: HISTORY.into(),
             title: "Search history".into(),
-            description: Some("Pages you visited, besides your bookmarks".into()),
+            description: Some("Pages you visited".into()),
             field: Field::Toggle { default: true },
         },
         Setting {
@@ -40,7 +50,14 @@ pub fn settings() -> Vec<Setting> {
                 max: Some(10.0),
             },
         },
-    ]
+    ];
+    settings.extend(profiles.iter().map(|profile| Setting {
+        key: profile.key(),
+        title: format!("{} · {}", profile.browser, profile.name),
+        description: None,
+        field: Field::Toggle { default: true },
+    }));
+    settings
 }
 
 /// A browser Sonar knows where to find.
@@ -166,6 +183,18 @@ pub struct Profile {
     pub open: Option<Vec<String>>,
 }
 
+impl Profile {
+    /// The profile's switch in `settings.toml`, like `chrome-profile-7`.
+    pub fn key(&self) -> String {
+        let folder = self.dir.file_name().unwrap_or_default().to_string_lossy();
+        format!("{}-{folder}", self.browser)
+            .to_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 struct Bookmark {
     title: String,
@@ -190,17 +219,32 @@ pub struct Browsers {
 }
 
 impl Browsers {
-    /// Every profile of every browser installed.
-    pub fn load(history: bool, limit: usize) -> Browsers {
-        Browsers::from_profiles(installed_profiles(), history, limit)
+    /// The profiles `settings` leaves on, searched the way it says. `settings` holds
+    /// a value for every key [`settings`] declares.
+    pub fn load(settings: &Map<String, Value>) -> Browsers {
+        let on = |key: &str| settings.get(key) != Some(&Value::Bool(false));
+        let profiles = installed_profiles()
+            .into_iter()
+            .filter(|profile| on(&profile.key()))
+            .collect();
+        let limit = settings[RESULTS].as_u64().unwrap_or(3) as usize;
+        Browsers::from_profiles(profiles, on(BOOKMARKS), on(HISTORY), limit)
     }
 
-    pub fn from_profiles(profiles: Vec<Profile>, history: bool, limit: usize) -> Browsers {
-        let bookmarks = profiles
-            .iter()
-            .enumerate()
-            .flat_map(|(i, profile)| read_bookmarks(&profile.dir.join("Bookmarks"), i))
-            .collect();
+    pub fn from_profiles(
+        profiles: Vec<Profile>,
+        bookmarks: bool,
+        history: bool,
+        limit: usize,
+    ) -> Browsers {
+        let bookmarks = match bookmarks {
+            true => profiles
+                .iter()
+                .enumerate()
+                .flat_map(|(i, profile)| read_bookmarks(&profile.dir.join("Bookmarks"), i))
+                .collect(),
+            false => Vec::new(),
+        };
         Browsers {
             profiles,
             bookmarks,
@@ -366,15 +410,15 @@ fn search_history(path: &Path, words: &[String], limit: usize) -> Vec<(i64, Stri
         "SELECT visit_count + 2 * typed_count, url, title FROM urls
          WHERE hidden = 0 AND url LIKE 'http%'",
     );
-    let mut args: Vec<Value> = Vec::new();
+    let mut args: Vec<rusqlite::types::Value> = Vec::new();
     for word in words {
         sql.push_str(" AND (lower(title) LIKE ? ESCAPE '^' OR lower(url) LIKE ? ESCAPE '^')");
         let pattern = format!("%{}%", escape_like(word));
-        args.push(Value::Text(pattern.clone()));
-        args.push(Value::Text(pattern));
+        args.push(rusqlite::types::Value::Text(pattern.clone()));
+        args.push(rusqlite::types::Value::Text(pattern));
     }
     sql.push_str(" ORDER BY 1 DESC, last_visit_time DESC LIMIT ?");
-    args.push(Value::Integer(limit as i64));
+    args.push(rusqlite::types::Value::Integer(limit as i64));
     // A read that lands while the browser writes can fail; the next keystroke retries.
     let Ok(mut stmt) = conn.prepare(&sql) else {
         return Vec::new();
@@ -595,7 +639,7 @@ mod tests {
                 ),
             ],
         );
-        let browsers = Browsers::from_profiles(vec![work], true, 10);
+        let browsers = Browsers::from_profiles(vec![work], true, true, 10);
 
         let found = browsers.search("rust");
         assert_eq!(
@@ -642,15 +686,20 @@ mod tests {
             &[("https://crates.io/", "crates.io: Rust Package Registry", 30)],
         );
 
-        let two = Browsers::from_profiles(vec![only.clone()], true, 2);
+        let two = Browsers::from_profiles(vec![only.clone()], true, true, 2);
         assert_eq!(titles(&two.search("rust")).len(), 2);
-        let no_history = Browsers::from_profiles(vec![only], false, 10);
+        let no_history = Browsers::from_profiles(vec![only.clone()], true, false, 10);
         assert_eq!(titles(&no_history.search("crates")), Vec::<&str>::new());
         let found = no_history.search("rust");
         assert_eq!(
             found[0].item.action,
             Action::Open("https://doc.rust-lang.org/".into()),
             "without the browser's program, the default browser opens it"
+        );
+        let history_only = Browsers::from_profiles(vec![only], false, true, 10);
+        assert_eq!(
+            titles(&history_only.search("rust")),
+            ["crates.io: Rust Package Registry"]
         );
     }
 
@@ -660,12 +709,19 @@ mod tests {
         let work = profile(tmp.path(), "Profile 1", "Work", None);
         let home = profile(tmp.path(), "Profile 2", "Home", None);
         fs::write(home.dir.join("Bookmarks"), BOOKMARKS).unwrap();
-        let browsers = Browsers::from_profiles(vec![work, home], false, 10);
+        let browsers = Browsers::from_profiles(vec![work, home], true, false, 10);
         let found = browsers.search("playground");
         assert_eq!(
             found[0].item.subtitle.as_deref(),
             Some("play.rust-lang.org · Home")
         );
+    }
+
+    #[test]
+    fn profiles_have_readable_keys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let profile = profile(tmp.path(), "Profile 7", "Work", None);
+        assert_eq!(profile.key(), "chrome-profile-7");
     }
 
     #[test]
