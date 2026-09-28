@@ -141,7 +141,7 @@ pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
 The command-line tool builds on its own with `cargo build --release -p sonar-cli`.
 
-`cargo test --workspace` and, in `app`, `pnpm test` run the tests. On Linux, `python3 app/e2e/smoke.py target/release/sonar-app` also drives a release build through WebKit's WebDriver: it searches, converts currencies and saves plugin settings, with a home folder of its own. It needs `WebKitWebDriver` (`webkit2gtk-driver` on Debian and Ubuntu) and the network. AppImages built on a rolling distribution like Arch can crash at start; build them on Ubuntu 22.04, as the release workflow does.
+`cargo test --workspace` and, in `app`, `pnpm test` run the tests. On Linux, `python3 app/e2e/smoke.py target/release/sonar-app` also drives a release build through WebKit's WebDriver: it searches, converts currencies and saves plugin settings, with a home folder of its own. It runs on a headless mutter, so it never takes your keyboard; add `--visible` to watch it. It needs `WebKitWebDriver` (`webkit2gtk-driver` on Debian and Ubuntu), mutter and the network. AppImages built on a rolling distribution like Arch can crash at start; build them on Ubuntu 22.04, as the release workflow does.
 
 ## Roadmap
 

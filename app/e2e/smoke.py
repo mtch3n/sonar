@@ -2,9 +2,13 @@
 
     python3 app/e2e/smoke.py target/release/bundle/appimage/Sonar_*.AppImage
 
-Needs WebKitWebDriver (Arch: webkitgtk-6.0, Debian and Ubuntu: webkit2gtk-driver) and
-a display. Sonar runs with a home folder of its own, so it never touches yours, and
-downloads exchange rates, so it needs the network. Only the standard library is used.
+Sonar runs on a headless mutter, on a D-Bus session of its own, so it never takes the
+keyboard or talks to a Sonar you have open; add --visible to watch it on your screen
+instead. It also gets a home folder of its own, so it never touches yours, and
+downloads exchange rates, so it needs the network.
+
+Needs WebKitWebDriver (Arch: webkitgtk-6.0, Debian and Ubuntu: webkit2gtk-driver),
+mutter and dbus-run-session. Only the standard library is used.
 """
 
 import json
@@ -126,6 +130,20 @@ def search(driver: WebDriver, query: str, match, what: str):
     )
 
 
+def headless_display() -> tuple[subprocess.Popen, dict]:
+    """Starts mutter with a virtual monitor and no window on screen, and the
+    variables that send Sonar to it and not to the desktop."""
+    name = f"sonar-e2e-{os.getpid()}"
+    socket_path = Path(os.environ["XDG_RUNTIME_DIR"]) / name
+    compositor = subprocess.Popen(
+        ["mutter", "--headless", "--wayland", "--no-x11", "--virtual-monitor", "1280x800", "--wayland-display", name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    wait_for(socket_path.exists, 15, "the headless compositor")
+    return compositor, {"WAYLAND_DISPLAY": name, "GDK_BACKEND": "wayland", "DISPLAY": None}
+
+
 def prepare(root: Path) -> dict:
     home = root / "home"
     files = {
@@ -226,9 +244,24 @@ def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Pat
 
 
 def main():
-    app = Path(sys.argv[1]).resolve()
+    visible = "--visible" in sys.argv
+    args = [arg for arg in sys.argv[1:] if arg != "--visible"]
+    if not visible and "SONAR_E2E_BUS" not in os.environ:
+        # Start again on a private session bus, which the compositor and Sonar share.
+        env = dict(os.environ, SONAR_E2E_BUS="1")
+        os.execvpe("dbus-run-session", ["dbus-run-session", "--", sys.executable, __file__, *args], env)
+
+    app = Path(args[0]).resolve()
     root = Path(tempfile.mkdtemp(prefix="sonar-e2e-"))
     env = prepare(root)
+    compositor = None
+    if not visible:
+        compositor, display = headless_display()
+        for key, value in display.items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
     log = open(root / "driver.log", "w")
     driver = WebDriver(app, env, log)
     try:
@@ -242,6 +275,9 @@ def main():
         # Sonar lives in the tray, so it outlasts the session by a moment.
         home = root / "home"
         wait_for(lambda: not running_in(home), 15, "Sonar to quit")
+        if compositor:
+            compositor.terminate()
+            compositor.wait(10)
     shutil.rmtree(root)
     print("all end-to-end checks passed")
 
