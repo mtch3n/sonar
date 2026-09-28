@@ -113,12 +113,14 @@ impl Index {
     /// Embeds what files searched by meaning need and `embedder` hasn't embedded
     /// yet. `progress` hears what's done after each batch, and stops it early by
     /// returning false.
+    /// Files under `private` are left out when the model isn't on this computer.
     pub fn embed(
         &mut self,
         embedder: &mut dyn Embedder,
+        private: &[PathBuf],
         progress: &mut dyn FnMut(&EmbedStats) -> bool,
     ) -> Result<EmbedStats> {
-        meaning::embed(&mut self.conn, embedder, progress)
+        meaning::embed(&mut self.conn, embedder, private, progress)
     }
 
     /// Forgets what was learned from the file at `path`, or from everything under

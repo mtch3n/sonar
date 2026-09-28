@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
     println!("loaded {model} in {:.1?}", started.elapsed());
     let mut index = Index::open(Path::new(db))?;
     let started = Instant::now();
-    let stats = index.embed(embedder.as_mut(), &mut |_| true)?;
+    let stats = index.embed(embedder.as_mut(), &[], &mut |_| true)?;
     println!("embedded {stats:?} in {:.1?}", started.elapsed());
     let home = dirs_home();
     for q in queries {

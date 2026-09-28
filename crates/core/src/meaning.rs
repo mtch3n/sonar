@@ -2,7 +2,10 @@
 //! queries compared against them.
 
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use std::path::{MAIN_SEPARATOR, PathBuf};
+
+use anyhow::Context;
+use rusqlite::{Connection, params, params_from_iter, types::Value};
 
 use crate::{Kind, Level, hash::Hash};
 
@@ -18,6 +21,11 @@ pub trait Embedder: Send {
     fn query(&mut self, text: &str) -> Result<Vec<f32>>;
     /// Scores below this mean unrelated.
     fn min_score(&self) -> f32;
+    /// Whether the model runs on this computer. Text is only sent to one that
+    /// doesn't from folders the settings don't keep private.
+    fn is_local(&self) -> bool {
+        true
+    }
 }
 
 /// How long a piece of text embedded on its own is, in bytes. About a paragraph:
@@ -112,11 +120,15 @@ const FILE_BATCH: usize = 16;
 pub(crate) fn embed(
     conn: &mut Connection,
     embedder: &mut dyn Embedder,
+    private: &[PathBuf],
     progress: &mut dyn FnMut(&EmbedStats) -> bool,
 ) -> Result<EmbedStats> {
     let model = embedder.id().to_owned();
     let meaning = Level::Meaning.as_int();
     let mut stats = EmbedStats::default();
+    // Names bind three arguments, and text four, before those.
+    let (shared_names, shared_names_args) = shareable(&*embedder, private, 4)?;
+    let (shared, shared_args) = shareable(&*embedder, private, 5)?;
 
     loop {
         if !progress(&stats) {
@@ -124,13 +136,24 @@ pub(crate) fn embed(
             return Ok(stats);
         }
         let names: Vec<String> = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT DISTINCT name FROM files
                  WHERE level >= ?1
-                   AND name NOT IN (SELECT name FROM cache.names WHERE model = ?2)
-                 LIMIT ?3",
+                   AND name NOT IN (SELECT name FROM cache.names WHERE model = ?2){shared_names}
+                 LIMIT ?3"
+            ))?
+            .query_map(
+                params_from_iter(
+                    [
+                        Value::Integer(meaning),
+                        Value::Text(model.clone()),
+                        Value::Integer(NAME_BATCH as i64),
+                    ]
+                    .into_iter()
+                    .chain(shared_names_args.iter().cloned()),
+                ),
+                |r| r.get(0),
             )?
-            .query_map(params![meaning, model, NAME_BATCH as i64], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?;
         if names.is_empty() {
             break;
@@ -157,21 +180,33 @@ pub(crate) fn embed(
             return Ok(stats);
         }
         let pending: Vec<(Hash, i64, String, String)> = conn
-            .prepare(
+            .prepare(&format!(
                 "SELECT c.hash, c.text_limit, c.text,
                         (SELECT kind FROM files f WHERE f.hash = c.hash LIMIT 1)
                  FROM cache.contents c
                  WHERE c.text IS NOT NULL
-                   AND c.hash IN (SELECT hash FROM files WHERE level >= ?1 AND hash IS NOT NULL)
+                   AND c.hash IN (
+                       SELECT hash FROM files
+                       WHERE level >= ?1 AND hash IS NOT NULL{shared})
                    AND NOT EXISTS (
                        SELECT 1 FROM cache.embedded e
                        WHERE e.model = ?2 AND e.hash = c.hash
                          AND e.policy = ?3 || '/' || c.text_limit)
-                 LIMIT ?4",
+                 LIMIT ?4"
+            ))?
+            .query_map(
+                params_from_iter(
+                    [
+                        Value::Integer(meaning),
+                        Value::Text(model.clone()),
+                        Value::Text(CHUNKING.to_owned()),
+                        Value::Integer(FILE_BATCH as i64),
+                    ]
+                    .into_iter()
+                    .chain(shared_args.iter().cloned()),
+                ),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )?
-            .query_map(params![meaning, model, CHUNKING, FILE_BATCH as i64], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })?
             .collect::<rusqlite::Result<_>>()?;
         if pending.is_empty() {
             break;
@@ -225,6 +260,39 @@ pub(crate) fn embed(
         stats.files += pending.len() as u64;
     }
     Ok(stats)
+}
+
+/// A condition on `files` that leaves out private folders when the model isn't
+/// local, to add after a WHERE, and its arguments, numbered from `first`.
+fn shareable(
+    embedder: &dyn Embedder,
+    private: &[PathBuf],
+    first: usize,
+) -> Result<(String, Vec<Value>)> {
+    if embedder.is_local() || private.is_empty() {
+        return Ok((String::new(), Vec::new()));
+    }
+    let mut sql = String::new();
+    let mut args = Vec::new();
+    for folder in private {
+        let folder = folder
+            .to_str()
+            .context("a private folder's path isn't UTF-8")?;
+        let folder = folder.trim_end_matches(MAIN_SEPARATOR);
+        let n = first + args.len();
+        sql.push_str(&format!(
+            " AND NOT (path = ?{n} OR (path >= ?{} AND path < ?{}))",
+            n + 1,
+            n + 2
+        ));
+        args.push(Value::Text(folder.to_owned()));
+        args.push(Value::Text(format!("{folder}{MAIN_SEPARATOR}")));
+        args.push(Value::Text(format!(
+            "{folder}{}",
+            (MAIN_SEPARATOR as u8 + 1) as char
+        )));
+    }
+    Ok((sql, args))
 }
 
 /// How many names and files `model` has yet to embed.

@@ -12,14 +12,45 @@ use sonar_plugins::store::Repo;
 pub struct Settings {
     pub shortcut: String,
     pub marketplaces: Vec<String>,
+    /// Folders whose files are never sent to a model that isn't on this computer,
+    /// like `~/Documents/private`.
+    pub private: Vec<String>,
     pub appearance: Appearance,
     pub search: Search,
     pub files: Files,
     pub index: Index,
     pub meaning: Meaning,
     pub updates: Updates,
+    /// `[providers.<id>]`: services with an OpenAI-compatible API, added to or
+    /// changing the ones Sonar knows.
+    pub providers: BTreeMap<String, ProviderSettings>,
     pub plugins: BTreeMap<String, PluginSettings>,
 }
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProviderSettings {
+    /// Where its API is, like `https://api.openai.com/v1`.
+    pub url: String,
+    /// An environment variable holding its API key, read before the keychain.
+    pub key_env: Option<String>,
+}
+
+/// Providers Sonar knows: id, API, and the variable their key is usually in.
+pub const KNOWN_PROVIDERS: [(&str, &str, Option<&str>); 4] = [
+    (
+        "openai",
+        "https://api.openai.com/v1",
+        Some("OPENAI_API_KEY"),
+    ),
+    (
+        "openrouter",
+        "https://openrouter.ai/api/v1",
+        Some("OPENROUTER_API_KEY"),
+    ),
+    ("ollama", "http://localhost:11434/v1", None),
+    ("lmstudio", "http://localhost:1234/v1", None),
+];
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -179,9 +210,11 @@ impl Default for Settings {
             appearance: Appearance::default(),
             search: Search::default(),
             files: Files::default(),
+            private: Vec::new(),
             index: Index::default(),
             meaning: Meaning::default(),
             updates: Updates::default(),
+            providers: BTreeMap::new(),
             plugins: BTreeMap::new(),
         }
     }
@@ -281,13 +314,37 @@ impl Settings {
         self.editor()?;
         self.terminal()?;
         self.index.check()?;
-        if sonar_models::info(&self.meaning.model).is_none() {
-            let models: Vec<&str> = sonar_models::MODELS.iter().map(|m| m.id).collect();
-            return Err(format!(
-                "meaning.model is `{}`; use one of: {}",
-                self.meaning.model,
-                models.join(", ")
-            ));
+        for (id, provider) in &self.providers {
+            if !provider.url.is_empty()
+                && !provider.url.starts_with("http://")
+                && !provider.url.starts_with("https://")
+            {
+                return Err(format!(
+                    "providers.{id}.url `{}` isn't a web address",
+                    provider.url
+                ));
+            }
+        }
+        match self.meaning.model.split_once(':') {
+            Some((provider, model)) => {
+                if self.provider_settings(provider).is_none() {
+                    return Err(format!(
+                        "meaning.model: there's no provider `{provider}`; add [providers.{provider}] with its url"
+                    ));
+                }
+                if model.is_empty() {
+                    return Err("meaning.model: name the model after the provider, like openai:text-embedding-3-small".into());
+                }
+            }
+            None if sonar_models::info(&self.meaning.model).is_none() => {
+                let models: Vec<&str> = sonar_models::MODELS.iter().map(|m| m.id).collect();
+                return Err(format!(
+                    "meaning.model is `{}`; use one of: {}, or a provider's, like openai:text-embedding-3-small",
+                    self.meaning.model,
+                    models.join(", ")
+                ));
+            }
+            None => {}
         }
         for (id, plugin) in &self.plugins {
             if let Some(keyword) = &plugin.keyword {
@@ -296,6 +353,95 @@ impl Settings {
             }
         }
         Ok(())
+    }
+
+    /// A provider's settings: its own table, or what Sonar knows of it.
+    pub fn provider_settings(&self, id: &str) -> Option<ProviderSettings> {
+        let known = KNOWN_PROVIDERS.iter().find(|(known, ..)| *known == id);
+        match (self.providers.get(id), known) {
+            (Some(own), known) => Some(ProviderSettings {
+                url: if own.url.is_empty() {
+                    known.map(|(_, url, _)| (*url).to_owned())?
+                } else {
+                    own.url.clone()
+                },
+                key_env: own
+                    .key_env
+                    .clone()
+                    .or_else(|| known.and_then(|(_, _, env)| env.map(str::to_owned))),
+            }),
+            (None, Some((_, url, env))) => Some(ProviderSettings {
+                url: (*url).to_owned(),
+                key_env: env.map(str::to_owned),
+            }),
+            (None, None) => None,
+        }
+    }
+
+    /// Every provider, known and added, by id.
+    pub fn provider_ids(&self) -> Vec<String> {
+        let mut ids: Vec<String> = KNOWN_PROVIDERS
+            .iter()
+            .map(|(id, ..)| (*id).to_owned())
+            .collect();
+        for id in self.providers.keys() {
+            if !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+        ids
+    }
+
+    /// A provider ready to be called, with its key from the environment or the
+    /// keychain.
+    pub fn provider(&self, id: &str) -> Option<sonar_models::Provider> {
+        let settings = self.provider_settings(id)?;
+        let key = settings
+            .key_env
+            .as_deref()
+            .and_then(|env| std::env::var(env).ok())
+            .filter(|key| !key.trim().is_empty())
+            .or_else(|| sonar_models::keys::get(id));
+        Some(sonar_models::Provider {
+            id: id.to_owned(),
+            url: settings.url,
+            key,
+        })
+    }
+
+    /// The private folders, with `~` as `home`.
+    pub fn private_folders(&self, home: &Path) -> Vec<std::path::PathBuf> {
+        self.private
+            .iter()
+            .map(|folder| match folder.strip_prefix('~') {
+                Some(rest) => home.join(rest.trim_start_matches(['/', '\\'])),
+                None => std::path::PathBuf::from(folder),
+            })
+            .collect()
+    }
+
+    /// Whether the meaning model can be loaded without downloading anything.
+    pub fn meaning_ready(&self, models: &Path) -> bool {
+        self.meaning.model.contains(':') || sonar_models::is_downloaded(&self.meaning.model, models)
+    }
+
+    /// The model that searches by meaning, downloaded into `models` if `load` lets
+    /// it and it's one Sonar runs itself.
+    pub fn meaning_model(
+        &self,
+        models: &Path,
+        load: sonar_models::Load,
+    ) -> Result<Box<dyn sonar_core::Embedder>, String> {
+        match self.meaning.model.split_once(':') {
+            Some((provider, model)) => {
+                let provider = self
+                    .provider(provider)
+                    .ok_or_else(|| format!("there's no provider `{provider}`"))?;
+                Ok(sonar_models::remote(provider, model))
+            }
+            None => sonar_models::load(&self.meaning.model, models, load)
+                .map_err(|err| format!("{err:#}")),
+        }
     }
 
     pub fn plugin(&self, id: &str) -> PluginSettings {
@@ -394,6 +540,8 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
     }
     set(&mut doc["shortcut"], settings.shortcut.as_str().into());
     set(&mut doc["marketplaces"], marketplaces.into());
+    let private: Array = settings.private.iter().map(String::as_str).collect();
+    set(&mut doc["private"], private.into());
     set(&mut doc["appearance"]["theme"], theme.into());
     let monitor = match a.monitor {
         Monitor::Active => "active",
@@ -443,6 +591,22 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
         settings.meaning.model.as_str().into(),
     );
     set(&mut doc["updates"]["check"], settings.updates.check.into());
+
+    let mut providers = Table::new();
+    providers.set_implicit(true);
+    for (id, provider) in &settings.providers {
+        let mut table = Table::new();
+        table["url"] = value(provider.url.as_str());
+        if let Some(env) = &provider.key_env {
+            table["key_env"] = value(env.as_str());
+        }
+        providers.insert(id, Item::Table(table));
+    }
+    if providers.is_empty() {
+        doc.remove("providers");
+    } else {
+        doc["providers"] = Item::Table(providers);
+    }
 
     // Only plugins that differ from their defaults get a table.
     let mut plugins = Table::new();
@@ -633,6 +797,9 @@ shortcut = "{DEFAULT_SHORTCUT}"
 # GitHub repositories whose plugins you can install by typing "plugins".
 marketplaces = ["{OFFICIAL_MARKETPLACE}"]
 
+# Folders whose files are never sent to a model that isn't on this computer.
+private = []
+
 [appearance]
 theme = "system"    # "system", "light" or "dark"
 monitor = "active"  # screen the bar opens on: "active", the one the pointer is on, or "main"
@@ -661,10 +828,19 @@ text_kb = 64        # how much of each file's text is searched, 1 to 16384
 
 [meaning]
 enabled = false     # search by meaning too; downloads the model the first time
-model = "multilingual"  # "multilingual", "english", "bge-small-en" or "multilingual-e5-small"
+model = "multilingual"  # "multilingual", "english", "bge-small-en", "multilingual-e5-small",
+                        # or a provider's, like "openai:text-embedding-3-small" or "ollama:nomic-embed-text"
 
 [updates]
 check = true        # look for new versions of Sonar on GitHub
+
+# Services with an OpenAI-compatible API. openai, openrouter, ollama and lmstudio
+# are known already; API keys go in Settings, which keeps them in the keychain,
+# or in the variable key_env names.
+#
+# [providers.work]
+# url = "https://llm.example.com/v1"
+# key_env = "WORK_LLM_KEY"
 
 # Turn a plugin off, give it another keyword, or change its own settings:
 #
@@ -803,6 +979,44 @@ mod tests {
         save(&path, &Settings::default()).unwrap();
         let text = fs::read_to_string(&path).unwrap();
         assert!(!text.contains("\n[index.kinds]\n"), "{text}");
+    }
+
+    #[test]
+    fn providers_and_private_folders() {
+        let settings = Settings::parse(
+            "private = [\"~/Private\", \"/srv/secret\"]\n\n[meaning]\nmodel = \"work:embed-large\"\n\n[providers.work]\nurl = \"http://127.0.0.1:9000/v1\"\nkey_env = \"SONAR_TEST_WORK_KEY\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            settings.private_folders(Path::new("/home/me")),
+            [
+                std::path::PathBuf::from("/home/me/Private"),
+                std::path::PathBuf::from("/srv/secret")
+            ]
+        );
+        let work = settings.provider("work").unwrap();
+        assert_eq!(work.url, "http://127.0.0.1:9000/v1");
+        assert!(work.is_local());
+        assert!(settings.meaning_ready(Path::new("/nowhere")));
+        let openai = settings.provider_settings("openai").unwrap();
+        assert_eq!(openai.key_env.as_deref(), Some("OPENAI_API_KEY"));
+        assert!(settings.provider_ids().contains(&"work".to_owned()));
+        for (text, says) in [
+            ("[meaning]\nmodel = \"nowhere:x\"", "no provider `nowhere`"),
+            ("[meaning]\nmodel = \"openai:\"", "name the model"),
+            ("[providers.x]\nurl = \"ftp://x\"", "isn't a web address"),
+        ] {
+            let err = Settings::parse(text).unwrap_err();
+            assert!(err.contains(says), "{text}: {err}");
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.toml");
+        fs::write(&path, template()).unwrap();
+        save(&path, &settings).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("[providers.work]\nurl = "), "{text}");
+        assert_eq!(Settings::parse(&text).unwrap(), settings);
     }
 
     #[test]

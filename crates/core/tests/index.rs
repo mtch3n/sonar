@@ -338,6 +338,31 @@ struct Topics {
     calls: usize,
 }
 
+/// The same topics, understood somewhere else.
+struct CloudTopics(Topics);
+
+impl Embedder for CloudTopics {
+    fn id(&self) -> &str {
+        "cloud-topics"
+    }
+
+    fn passages(&mut self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+        self.0.passages(texts)
+    }
+
+    fn query(&mut self, text: &str) -> anyhow::Result<Vec<f32>> {
+        self.0.query(text)
+    }
+
+    fn min_score(&self) -> f32 {
+        0.5
+    }
+
+    fn is_local(&self) -> bool {
+        false
+    }
+}
+
 const TOPICS: [&[&str]; 3] = [
     &["photo", "photos", "picture", "pictures", "image"],
     &["backup", "backs", "copy", "rsync", "sync"],
@@ -395,12 +420,12 @@ fn search_by_meaning() {
 
     let mut model = Topics { calls: 0 };
     assert_eq!(index.pending_meaning("topics").unwrap().1, 2);
-    let stats = index.embed(&mut model, &mut |_| true).unwrap();
+    let stats = index.embed(&mut model, &[], &mut |_| true).unwrap();
     assert_eq!(stats.files, 2, "{stats:?}");
     assert_eq!(index.pending_meaning("topics").unwrap(), (0, 0));
     assert!(stats.names >= 4, "{stats:?}");
     let calls = model.calls;
-    index.embed(&mut model, &mut |_| true).unwrap();
+    index.embed(&mut model, &[], &mut |_| true).unwrap();
     assert_eq!(model.calls, calls, "nothing is embedded twice");
 
     let mut search = |input: &str| -> Vec<(String, Option<String>)> {
@@ -438,7 +463,7 @@ fn embedding_stops_when_asked() {
     let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
     index.scan(&home, &rules, &ScanOptions::default()).unwrap();
     let mut model = Topics { calls: 0 };
-    let stats = index.embed(&mut model, &mut |_| false).unwrap();
+    let stats = index.embed(&mut model, &[], &mut |_| false).unwrap();
     assert!(stats.stopped);
     assert_eq!(model.calls, 0);
 }
@@ -455,7 +480,7 @@ fn forgetting_reads_and_embeds_again() {
     let options = ScanOptions::default();
     index.scan(&home, &rules, &options).unwrap();
     let mut model = Topics { calls: 0 };
-    index.embed(&mut model, &mut |_| true).unwrap();
+    index.embed(&mut model, &[], &mut |_| true).unwrap();
     assert_eq!(index.pending_meaning("topics").unwrap(), (0, 0));
 
     assert_eq!(
@@ -467,4 +492,31 @@ fn forgetting_reads_and_embeds_again() {
     assert_eq!(index.pending_meaning("topics").unwrap(), (2, 2));
     assert_eq!(find(&index, &home, "photos"), ["a.md"]);
     assert_eq!(index.forget(&home.join("Other/c.md")).unwrap(), 1);
+}
+
+#[test]
+fn private_folders_stay_local() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(&home, "Private/diary.md", "photos of the beach");
+    write(&home, "Shared/notes.md", "backup plan");
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules, &ScanOptions::default()).unwrap();
+    let private = [home.join("Private")];
+
+    let mut cloud = CloudTopics(Topics { calls: 0 });
+    let stats = index.embed(&mut cloud, &private, &mut |_| true).unwrap();
+    assert_eq!(
+        (stats.names, stats.files),
+        (1, 1),
+        "only what's under Shared"
+    );
+    let mut local = Topics { calls: 0 };
+    let stats = index.embed(&mut local, &private, &mut |_| true).unwrap();
+    assert_eq!(
+        (stats.names, stats.files),
+        (2, 2),
+        "a local model reads everything"
+    );
 }

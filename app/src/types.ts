@@ -62,6 +62,7 @@ export type Setting = { key: string; title: string; description: string | null }
 export type Settings = {
   shortcut: string;
   marketplaces: string[];
+  private: string[];
   appearance: {
     theme: "system" | "light" | "dark";
     monitor: "active" | "main";
@@ -74,6 +75,7 @@ export type Settings = {
   index: { rescan_minutes: number; text_kb: number; kinds: Record<string, string> };
   meaning: { enabled: boolean; model: string };
   updates: { check: boolean };
+  providers: Record<string, { url: string; key_env: string | null }>;
   plugins: Record<string, PluginSettings>;
 };
 
@@ -106,4 +108,13 @@ export type Editor = {
   kinds: { kind: string; default: string; levels: string[] }[];
   /** The models that can search by meaning. */
   models: { id: string; name: string; description: string; downloadMb: number; downloaded: boolean }[];
+  /** Services with an OpenAI-compatible API. */
+  providers: {
+    id: string;
+    url: string;
+    local: boolean;
+    hasKey: boolean;
+    keyEnv: string | null;
+    known: boolean;
+  }[];
 };
