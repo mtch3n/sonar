@@ -2,6 +2,7 @@
 //! external plugins that speak Sonar's JSON-lines protocol (see `docs/plugins.md`),
 //! the settings plugins declare, and installing plugins from GitHub marketplaces.
 
+pub mod apps;
 pub mod browser;
 pub mod calculator;
 mod clock;

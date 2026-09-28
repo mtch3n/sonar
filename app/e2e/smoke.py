@@ -186,6 +186,11 @@ def prepare(root: Path) -> dict:
                     "('https://crates.io/crates/serde', 'serde - crates.io', 12, 0)")
     history.commit()
     history.close()
+    applications = home / ".local" / "share" / "applications"
+    applications.mkdir(parents=True)
+    (applications / "sonar-test-pad.desktop").write_text(
+        "[Desktop Entry]\nName=Sonar Test Pad\nKeywords=scratchpad;\nType=Application\nExec=true\n"
+    )
     config = home / ".config" / "sonar"
     shutil.copytree(REPO / "plugins" / "web-search", config / "plugins" / "web-search")
     (config / "settings.toml").write_text(
@@ -234,6 +239,10 @@ def check_search_window(driver: WebDriver):
     row = search(driver, "serde", lambda r: r["title"] == "serde - crates.io", "a page from Chrome's history")
     assert row["subtitle"] == "crates.io/crates/serde", row
     print("ok  Chrome bookmarks and history")
+
+    search(driver, "sonar test", lambda r: r["title"] == "Sonar Test Pad", "an installed app")
+    search(driver, "scratchpad", lambda r: r["title"] == "Sonar Test Pad", "an app by its keyword")
+    print("ok  apps by name and keyword")
 
     search(driver, "slee", lambda r: r["title"] == "Sleep", "the System plugin")
     row = search(driver, "restart", lambda r: r["title"] == "Restart", "a command that asks first")

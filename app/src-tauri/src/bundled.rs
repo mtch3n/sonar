@@ -5,7 +5,7 @@
 use std::{fs, path::Path};
 
 use serde::Serialize;
-use sonar_plugins::{Setting, browser, calculator, processes, system, windows};
+use sonar_plugins::{Setting, apps, browser, calculator, processes, system, windows};
 
 struct Bundled {
     id: &'static str,
@@ -21,6 +21,16 @@ struct Bundled {
 }
 
 const BUNDLED: &[Bundled] = &[
+    Bundled {
+        id: apps::ID,
+        name: "Apps",
+        description: "Open installed apps by name",
+        keyword: None,
+        position: "top",
+        icon: include_str!("../icons/plugins/apps.svg"),
+        settings: apps::settings,
+        serve: apps::serve,
+    },
     Bundled {
         id: calculator::ID,
         name: "Calculator",
@@ -139,10 +149,17 @@ mod tests {
         let ids: Vec<&str> = manifests.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(
             ids,
-            ["browser", "calculator", "processes", "system", "windows"]
+            [
+                "apps",
+                "browser",
+                "calculator",
+                "processes",
+                "system",
+                "windows"
+            ]
         );
-        assert_eq!(manifests[2].keyword.as_deref(), Some("kill"));
-        let calculator = &manifests[1];
+        assert_eq!(manifests[3].keyword.as_deref(), Some("kill"));
+        let calculator = &manifests[2];
         assert_eq!(calculator.id, "calculator");
         assert_eq!(
             calculator.command,

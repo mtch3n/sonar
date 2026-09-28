@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::App;
+use crate::{App, Launchable};
 
 /// Apps whose entry's categories satisfy `wanted`, from the user's and the system's
 /// application folders. An entry in the user's folder hides the system's one.
@@ -64,13 +64,71 @@ fn application_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
+/// Every app shown in the desktop's menus, opened with `gio launch`, which starts
+/// Flatpaks, D-Bus activated apps and terminal apps the way the desktop does.
+pub fn launchable() -> Vec<Launchable> {
+    let mut seen = HashSet::new();
+    let mut apps = Vec::new();
+    for dir in application_dirs() {
+        let Ok(files) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for file in files.flatten().map(|f| f.path()) {
+            let Some(id) = file.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            if !id.ends_with(".desktop") || !seen.insert(id) {
+                continue;
+            }
+            let Some(entry) = fs::read_to_string(&file)
+                .ok()
+                .and_then(|t| Entry::parse(&t))
+            else {
+                continue;
+            };
+            let shown =
+                entry.is_app && !entry.hidden && entry.try_exec.as_deref().is_none_or(on_path);
+            if !shown {
+                continue;
+            }
+            let mut other_names = entry.keywords.clone();
+            other_names.extend(entry.generic_name.clone());
+            // The same app can be installed as a package and as a Flatpak.
+            let flatpak = entry
+                .command()
+                .and_then(|c| c.first().cloned())
+                .is_some_and(|p| p.ends_with("flatpak"));
+            apps.push(Launchable {
+                icon: entry.icon.as_deref().and_then(find_icon),
+                name: if flatpak {
+                    format!("{} (Flatpak)", entry.name)
+                } else {
+                    entry.name
+                },
+                other_names,
+                open: vec![
+                    "gio".into(),
+                    "launch".into(),
+                    file.to_string_lossy().into_owned(),
+                ],
+            });
+        }
+    }
+    apps
+}
+
 /// The icon file of the app whose entry is `id`, like `org.gnome.Ptyxis.desktop`,
 /// from the icon theme's usual folders.
 pub fn icon(id: &str) -> Option<PathBuf> {
     let text = application_dirs()
         .iter()
         .find_map(|dir| fs::read_to_string(dir.join(id)).ok())?;
-    let name = Entry::parse(&text)?.icon?;
+    find_icon(&Entry::parse(&text)?.icon?)
+}
+
+/// An `Icon=` value as a file: a path as it is, or a name looked up in the icon
+/// theme's usual folders, largest first.
+fn find_icon(name: &str) -> Option<PathBuf> {
     if Path::new(&name).is_absolute() {
         return Path::new(&name).is_file().then(|| PathBuf::from(name));
     }
@@ -91,6 +149,8 @@ pub fn icon(id: &str) -> Option<PathBuf> {
 #[derive(Debug, Default, PartialEq)]
 struct Entry {
     name: String,
+    generic_name: Option<String>,
+    keywords: Vec<String>,
     exec: String,
     icon: Option<String>,
     try_exec: Option<String>,
@@ -116,6 +176,14 @@ impl Entry {
             let value = value.trim();
             match key.trim() {
                 "Name" => entry.name = value.to_owned(),
+                "GenericName" => entry.generic_name = Some(value.to_owned()),
+                "Keywords" => {
+                    entry.keywords = value
+                        .split(';')
+                        .filter(|k| !k.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                }
                 "Exec" => entry.exec = value.to_owned(),
                 "Icon" => entry.icon = Some(value.to_owned()),
                 "TryExec" => entry.try_exec = Some(value.to_owned()),
@@ -246,6 +314,41 @@ Exec=/usr/bin/code-insiders --new-window %F
             Some(data.join("icons/hicolor/scalable/apps/org.example.Editor.svg"))
         );
         assert_eq!(icon("missing.desktop"), None);
+    }
+
+    #[test]
+    fn launches_every_shown_app_through_gio() {
+        let tmp = tempfile::tempdir().unwrap();
+        let apps = tmp.path().join("share/applications");
+        fs::create_dir_all(&apps).unwrap();
+        fs::write(
+            apps.join("firefox.desktop"),
+            "[Desktop Entry]\nName=Firefox\nGenericName=Web Browser\nKeywords=internet;www;\nType=Application\nExec=firefox %u\n",
+        )
+        .unwrap();
+        fs::write(
+            apps.join("hidden.desktop"),
+            "[Desktop Entry]\nName=Hidden\nType=Application\nExec=x\nNoDisplay=true\n",
+        )
+        .unwrap();
+        let _env = ENV.lock().unwrap();
+        // SAFETY: only these tests in this crate read or set these variables, one at a time.
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", tmp.path().join("share"));
+            std::env::set_var("XDG_DATA_DIRS", tmp.path().join("none"));
+        }
+        let found = launchable();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].name, "Firefox");
+        assert_eq!(found[0].other_names, ["internet", "www", "Web Browser"]);
+        assert_eq!(
+            found[0].open,
+            [
+                "gio",
+                "launch",
+                &apps.join("firefox.desktop").to_string_lossy()
+            ]
+        );
     }
 
     #[test]
