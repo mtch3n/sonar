@@ -34,6 +34,8 @@ In the search bar, ↑ and ↓ move, Enter opens the file, Ctrl + Enter (⌘ + E
 
 Words match the start of words in file and folder names, so `inv` finds `invoice-march.pdf` and `photos` finds `backupPhotos.sh`. Every word has to match.
 
+Words of three letters or more also match the text inside plain-text files outside code projects: notes, Markdown, CSV, scripts and config files. `rsync` finds a backup script that runs rsync, and the result shows the line that matched. Name matches come first. Sonar reads up to 64 KB of each file, and never reads keys and certificates or files that are only stored in OneDrive or iCloud.
+
 | Filter | Example | Meaning |
 |---|---|---|
 | `kind:` | `kind:pdf,image` | project, folder, app, code, script, key, pdf, doc, sheet, slides, image, video, audio, archive, config, other |

@@ -3,7 +3,7 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 const SCHEMA: &str = "
 CREATE TABLE files (
@@ -20,12 +20,17 @@ CREATE TABLE files (
 CREATE INDEX files_mtime ON files (mtime);
 
 CREATE VIRTUAL TABLE files_fts USING fts5 (
-    name, dirs,
+    name, dirs, body,
     content = '', contentless_delete = 1,
     tokenize = 'unicode61 remove_diacritics 2'
 );
+CREATE TABLE texts (
+    id INTEGER PRIMARY KEY,
+    text TEXT NOT NULL
+);
 CREATE TRIGGER files_deleted AFTER DELETE ON files BEGIN
     DELETE FROM files_fts WHERE rowid = old.id;
+    DELETE FROM texts WHERE id = old.id;
 END;
 ";
 
@@ -42,6 +47,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
         let tx = conn.transaction()?;
         tx.execute_batch(
             "DROP TRIGGER IF EXISTS files_deleted;
+             DROP TABLE IF EXISTS texts;
              DROP TABLE IF EXISTS files_fts;
              DROP TABLE IF EXISTS files;",
         )?;

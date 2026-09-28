@@ -823,9 +823,14 @@ fn file_draft(hit: Hit, home: &Path, now: i64) -> Draft {
         None => age(now, hit.mtime),
     };
     let open = |action| Command::Plugin { action, dir: None };
+    // A file found by its text shows the line that matched, then where it is.
+    let subtitle = match hit.line {
+        Some(line) => format!("{line} · {folder}"),
+        None => folder,
+    };
     Draft {
         title: hit.name,
-        subtitle: Some(folder),
+        subtitle: Some(subtitle),
         meta: Some(meta),
         icon: hit.kind.as_str(),
         image: None,

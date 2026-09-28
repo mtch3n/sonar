@@ -4,6 +4,7 @@ mod query;
 mod rules;
 mod scan;
 mod search;
+mod text;
 mod words;
 
 use std::path::{Path, PathBuf};

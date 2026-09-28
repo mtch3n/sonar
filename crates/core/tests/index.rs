@@ -8,6 +8,22 @@ fn touch(root: &Path, relative: &str) {
     fs::write(path, relative).unwrap();
 }
 
+fn write(root: &Path, relative: &str, text: &str) {
+    let path = root.join(relative);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+fn lines(index: &Index, home: &Path, input: &str) -> Vec<(String, Option<String>)> {
+    let query = Query::parse(input, home).unwrap();
+    index
+        .search(&query)
+        .unwrap()
+        .into_iter()
+        .map(|hit| (hit.name, hit.line))
+        .collect()
+}
+
 fn find(index: &Index, home: &Path, input: &str) -> Vec<String> {
     let query = Query::parse(input, home).unwrap();
     index
@@ -63,4 +79,62 @@ fn scan_and_search() {
     let stats = index.scan(&home, &rules).unwrap();
     assert_eq!(stats.removed, 1);
     assert!(find(&index, &home, "invoice").is_empty());
+}
+
+#[test]
+fn search_inside_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    write(
+        &home,
+        "scripts/backupPhotos.sh",
+        "#!/bin/sh\n# nightly\nrsync -av ~/Pictures nas:/photos\n",
+    );
+    write(
+        &home,
+        "Documents/notes.md",
+        "# Monday\n\nMeeting about the quarterly budget.\n",
+    );
+    write(&home, "Documents/budget.txt", "numbers");
+    write(&home, "Documents/photo.png", "rsync");
+    write(&home, ".ssh/id_ed25519", "secretword");
+    write(&home, "app/Cargo.toml", "");
+    write(&home, "app/README.md", "zebra");
+    fs::create_dir(home.join("app/.git")).unwrap();
+
+    let rules = Rules::load(&tmp.path().join("ignore"), &home).unwrap();
+    let mut index = Index::open(&tmp.path().join("index.db")).unwrap();
+    index.scan(&home, &rules).unwrap();
+
+    let line = |text: &str| Some(text.to_owned());
+    assert_eq!(
+        lines(&index, &home, "rsync"),
+        [(
+            "backupPhotos.sh".to_owned(),
+            line("rsync -av ~/Pictures nas:/photos")
+        )]
+    );
+    assert_eq!(
+        lines(&index, &home, "budget"),
+        [
+            ("budget.txt".to_owned(), None),
+            (
+                "notes.md".to_owned(),
+                line("Meeting about the quarterly budget.")
+            ),
+        ]
+    );
+    assert_eq!(
+        lines(&index, &home, "photos"),
+        [("backupPhotos.sh".to_owned(), None)]
+    );
+    assert!(find(&index, &home, "secretword").is_empty());
+    assert!(find(&index, &home, "zebra kind:doc").is_empty());
+    assert!(find(&index, &home, "mo").is_empty());
+    assert!(find(&index, &home, "budget -quarterly").contains(&"notes.md".to_owned()));
+
+    write(&home, "Documents/notes.md", "Tuesday: dentist");
+    index.scan(&home, &rules).unwrap();
+    assert_eq!(find(&index, &home, "dentist"), ["notes.md"]);
+    assert_eq!(find(&index, &home, "budget"), ["budget.txt"]);
 }
