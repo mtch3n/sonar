@@ -4,6 +4,23 @@ use crate::launcher::Launcher;
 
 const MAIN: &str = "main";
 
+/// Turns off WebKitGTK's smooth scrolling, which animates every scroll on Linux: the
+/// list lagged behind the keyboard when ↑ and ↓ moved past its edge, and scrolling
+/// the Settings window felt slow.
+pub fn plain_scrolling(window: &WebviewWindow) {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = window.with_webview(|webview| {
+            use webkit2gtk::{SettingsExt, WebViewExt};
+            if let Some(settings) = WebViewExt::settings(&webview.inner()) {
+                settings.set_enable_smooth_scrolling(false);
+            }
+        });
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = window;
+}
+
 pub fn toggle(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN) else {
         return;

@@ -103,14 +103,27 @@ export default function App() {
   useLayoutEffect(() => {
     const element = panel.current;
     if (!element) return;
+    // Results arrive in several batches per keystroke; resizing the window for each
+    // one made the bar stutter, so resize at most once a frame, and only when the
+    // height really changed.
+    let last = 0;
+    let frame = 0;
     const fit = () => {
       const height = Math.ceil(element.getBoundingClientRect().height);
+      if (height === last) return;
+      last = height;
       appWindow.setSize(new LogicalSize(width, height));
     };
     fit();
-    const observer = new ResizeObserver(fit);
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fit);
+    });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [width]);
 
   const visible = sections.filter((s) => s.rows.length > 0 || s.message || s.pending);

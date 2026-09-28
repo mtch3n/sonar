@@ -50,6 +50,9 @@ fn main() {
             if let Some(window) = app.get_webview_window("main") {
                 window.set_resizable(true)?;
             }
+            if let Some(window) = app.get_webview_window("main") {
+                window::plain_scrolling(&window);
+            }
 
             let paths = Paths::from_env()?;
             let launcher = Launcher::open(paths.clone())?;
