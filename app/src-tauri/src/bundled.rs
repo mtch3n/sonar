@@ -6,7 +6,8 @@ use std::{fs, path::Path};
 
 use serde::Serialize;
 use sonar_plugins::{
-    Setting, apps, browser, calculator, clipboard, dns, ports, processes, services, system, windows,
+    Setting, apps, browser, calculator, clipboard, describe, dns, fingerprint, ports, processes,
+    services, system, windows,
 };
 
 struct Bundled {
@@ -21,6 +22,18 @@ struct Bundled {
     icon: &'static str,
     /// Built when written, so choices can come from this computer.
     settings: fn() -> Vec<Setting>,
+    /// Answers searches, when it does.
+    serve: Option<fn()>,
+    /// Processes files as they're indexed, when it does.
+    process: Option<BundledProcess>,
+}
+
+struct BundledProcess {
+    kinds: &'static [&'static str],
+    version: &'static str,
+    frames: usize,
+    /// The setting naming the model it uses.
+    model: Option<&'static str>,
     serve: fn(),
 }
 
@@ -34,7 +47,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &[],
         icon: include_str!("../icons/plugins/apps.svg"),
         settings: apps::settings,
-        serve: apps::serve,
+        serve: Some(apps::serve),
+        process: None,
     },
     Bundled {
         id: calculator::ID,
@@ -45,7 +59,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &[],
         icon: include_str!("../icons/plugins/calculator.svg"),
         settings: calculator::settings,
-        serve: calculator::serve,
+        serve: Some(calculator::serve),
+        process: None,
     },
     Bundled {
         id: browser::ID,
@@ -56,7 +71,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &[],
         icon: include_str!("../icons/plugins/browser.svg"),
         settings: browser::settings,
-        serve: browser::serve,
+        serve: Some(browser::serve),
+        process: None,
     },
     Bundled {
         id: system::ID,
@@ -67,7 +83,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &[],
         icon: include_str!("../icons/plugins/system.svg"),
         settings: system::settings,
-        serve: system::serve,
+        serve: Some(system::serve),
+        process: None,
     },
     Bundled {
         id: processes::ID,
@@ -78,7 +95,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &[],
         icon: include_str!("../icons/plugins/processes.svg"),
         settings: processes::settings,
-        serve: processes::serve,
+        serve: Some(processes::serve),
+        process: None,
     },
     Bundled {
         id: windows::ID,
@@ -89,7 +107,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &["linux"],
         icon: include_str!("../icons/plugins/windows.svg"),
         settings: windows::settings,
-        serve: windows::serve,
+        serve: Some(windows::serve),
+        process: None,
     },
     Bundled {
         id: ports::ID,
@@ -100,7 +119,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &[],
         icon: include_str!("../icons/plugins/ports.svg"),
         settings: ports::settings,
-        serve: ports::serve,
+        serve: Some(ports::serve),
+        process: None,
     },
     Bundled {
         id: dns::ID,
@@ -111,7 +131,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &[],
         icon: include_str!("../icons/plugins/dns.svg"),
         settings: dns::settings,
-        serve: dns::serve,
+        serve: Some(dns::serve),
+        process: None,
     },
     Bundled {
         id: services::ID,
@@ -122,7 +143,8 @@ const BUNDLED: &[Bundled] = &[
         platforms: &["linux"],
         icon: include_str!("../icons/plugins/services.svg"),
         settings: services::settings,
-        serve: services::serve,
+        serve: Some(services::serve),
+        process: None,
     },
     Bundled {
         id: clipboard::ID,
@@ -133,17 +155,71 @@ const BUNDLED: &[Bundled] = &[
         platforms: &["linux"],
         icon: include_str!("../icons/plugins/clipboard.svg"),
         settings: clipboard::settings,
-        serve: clipboard::serve,
+        serve: Some(clipboard::serve),
+        process: None,
+    },
+    Bundled {
+        id: describe::ID,
+        name: "Describe",
+        description: "Tags and a line about each image and video, from a vision model, to search them by",
+        keyword: None,
+        position: "bottom",
+        platforms: &[],
+        icon: include_str!("../icons/plugins/describe.svg"),
+        settings: describe::settings,
+        serve: None,
+        process: Some(BundledProcess {
+            kinds: &["image", "video"],
+            version: describe::VERSION,
+            frames: describe::FRAMES,
+            model: Some("model"),
+            serve: describe::serve,
+        }),
+    },
+    Bundled {
+        id: fingerprint::ID,
+        name: "Fingerprint",
+        description: "Perceptual fingerprints of images and videos, to find ones that look alike",
+        keyword: None,
+        position: "bottom",
+        platforms: &[],
+        icon: include_str!("../icons/plugins/fingerprint.svg"),
+        settings: Vec::new,
+        serve: None,
+        process: Some(BundledProcess {
+            kinds: &["image", "video"],
+            version: fingerprint::VERSION,
+            frames: fingerprint::FRAMES,
+            model: None,
+            serve: fingerprint::serve,
+        }),
     },
 ];
 
-/// Runs the bundled plugin `id`, if there is one by that name.
+/// Runs the bundled plugin `id` for searches, if there is one by that name.
 pub fn serve(id: &str) -> bool {
-    let Some(plugin) = BUNDLED.iter().find(|p| p.id == id) else {
-        return false;
-    };
-    (plugin.serve)();
-    true
+    match BUNDLED.iter().find(|p| p.id == id).and_then(|p| p.serve) {
+        Some(serve) => {
+            serve();
+            true
+        }
+        None => false,
+    }
+}
+
+/// Runs the bundled plugin `id` to process files, if there is one by that name.
+pub fn serve_process(id: &str) -> bool {
+    match BUNDLED
+        .iter()
+        .find(|p| p.id == id)
+        .and_then(|p| p.process.as_ref())
+    {
+        Some(process) => {
+            (process.serve)();
+            true
+        }
+        None => false,
+    }
 }
 
 #[derive(Serialize)]
@@ -152,12 +228,25 @@ struct PluginFile<'a> {
     description: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     keyword: Option<&'a str>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     command: Vec<String>,
     position: &'a str,
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     platforms: &'a [&'a str],
     icon: &'a str,
     settings: Vec<Setting>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    process: Option<ProcessFile<'a>>,
+}
+
+#[derive(Serialize)]
+struct ProcessFile<'a> {
+    kinds: &'a [&'a str],
+    command: Vec<String>,
+    version: &'a str,
+    frames: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<&'a str>,
 }
 
 /// Writes a folder for each bundled plugin into `dir`, started by `program`.
@@ -165,15 +254,22 @@ pub fn write(dir: &Path, program: &Path) -> Result<(), String> {
     for plugin in BUNDLED {
         let folder = dir.join(plugin.id);
         fs::create_dir_all(&folder).map_err(|err| err.to_string())?;
+        let program = program.to_string_lossy().into_owned();
         let file = PluginFile {
             name: plugin.name,
             description: plugin.description,
             keyword: plugin.keyword,
-            command: vec![
-                program.to_string_lossy().into_owned(),
-                "--plugin".into(),
-                plugin.id.into(),
-            ],
+            command: match plugin.serve {
+                Some(_) => vec![program.clone(), "--plugin".into(), plugin.id.into()],
+                None => Vec::new(),
+            },
+            process: plugin.process.as_ref().map(|process| ProcessFile {
+                kinds: process.kinds,
+                command: vec![program.clone(), "--process".into(), plugin.id.into()],
+                version: process.version,
+                frames: process.frames,
+                model: process.model,
+            }),
             position: plugin.position,
             platforms: plugin.platforms,
             icon: "icon.svg",
@@ -210,7 +306,9 @@ mod tests {
             "browser",
             "calculator",
             "clipboard",
+            "describe",
             "dns",
+            "fingerprint",
             "ports",
             "processes",
             "services",

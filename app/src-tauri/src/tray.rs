@@ -13,7 +13,7 @@ use tauri::{
 
 use crate::{
     indexer::{Indexer, Status},
-    meaning, updater, window,
+    learner, updater, window,
 };
 
 pub const CHECK_FOR_UPDATES: &str = "Check for updates";
@@ -158,23 +158,35 @@ impl Tray {
         self.refresh();
     }
 
-    pub fn show_meaning(&self, status: &meaning::Status) {
+    pub fn show_learning(&self, status: &learner::Status) {
         let text = match status {
-            meaning::Status::Off | meaning::Status::Ready => None,
-            meaning::Status::Downloading { name, mb } => {
+            learner::Status::Idle => None,
+            learner::Status::Downloading { name, mb } => {
                 Some(format!("Downloading the {name} model ({mb} MB)…"))
             }
-            meaning::Status::Embedding { done, total } => Some(format!(
+            learner::Status::Embedding { done, total } => Some(format!(
                 "Learning meaning: {} of {}",
                 thousands(*done),
                 thousands(*total)
             )),
-            meaning::Status::Failed(err) => Some(format!("Search by meaning failed: {err}")),
+            learner::Status::Processing {
+                plugin,
+                done,
+                total,
+            } => Some(format!(
+                "{}: {} of {}",
+                capitalized(plugin),
+                thousands(*done),
+                thousands(*total)
+            )),
+            learner::Status::Failed(err) => Some(format!("Learning failed: {err}")),
         };
         if let Ok(mut flags) = self.flags.lock() {
             flags.embedding = matches!(
                 status,
-                meaning::Status::Downloading { .. } | meaning::Status::Embedding { .. }
+                learner::Status::Downloading { .. }
+                    | learner::Status::Embedding { .. }
+                    | learner::Status::Processing { .. }
             );
             flags.meaning_text = text;
         }
@@ -240,6 +252,14 @@ impl Tray {
             let _ = self.icon.set_icon_as_template(cfg!(target_os = "macos"));
         }
     }
+}
+
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
 }
 
 fn image(look: Look) -> tauri::Result<Image<'static>> {

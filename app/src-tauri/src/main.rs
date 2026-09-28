@@ -8,7 +8,7 @@ mod host;
 mod hotkey;
 mod indexer;
 mod launcher;
-mod meaning;
+mod learner;
 mod tray;
 mod updater;
 mod watcher;
@@ -22,7 +22,7 @@ use crate::{
     hotkey::Hotkey,
     indexer::{Indexer, Status},
     launcher::Launcher,
-    meaning::Meaning,
+    learner::Learner,
     tray::Tray,
 };
 
@@ -39,6 +39,14 @@ fn main() {
             let id = args.next().unwrap_or_default();
             if !bundled::serve(&id) {
                 eprintln!("sonar: there's no plugin `{id}` in Sonar");
+                std::process::exit(2);
+            }
+            return;
+        }
+        Some("--process") => {
+            let id = args.next().unwrap_or_default();
+            if !bundled::serve_process(&id) {
+                eprintln!("sonar: there's no processor `{id}` in Sonar");
                 std::process::exit(2);
             }
             return;
@@ -114,9 +122,20 @@ fn main() {
             let meaning = {
                 let tray = tray.clone();
                 let query = app.state::<Launcher>().query_model();
-                Meaning::start(paths.clone(), meaning_settings, query, move |status| {
-                    tray.show_meaning(&status)
-                })
+                let handle = app.handle().clone();
+                let processors = move || {
+                    handle
+                        .try_state::<Launcher>()
+                        .map(|launcher| launcher.processors())
+                        .unwrap_or_default()
+                };
+                Learner::start(
+                    paths.clone(),
+                    meaning_settings,
+                    processors,
+                    query,
+                    move |status| tray.show_learning(&status),
+                )
             };
             app.manage(meaning.clone());
             meaning.wake();
@@ -220,7 +239,7 @@ fn reload(app: &AppHandle) {
     let meaning = launcher.current_settings().meaning;
     launcher.reload();
     if launcher.current_settings().meaning != meaning
-        && let Some(worker) = app.try_state::<Meaning>()
+        && let Some(worker) = app.try_state::<Learner>()
     {
         worker.wake();
     }

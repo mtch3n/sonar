@@ -194,6 +194,8 @@ pub(crate) fn forget(conn: &mut Connection, path: &Path) -> Result<u64> {
         "DELETE FROM cache.vectors WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
         "DELETE FROM cache.embedded WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
         "DELETE FROM cache.contents WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
+        "DELETE FROM cache.outputs WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
+        "DELETE FROM cache.extras WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
         "DELETE FROM cache.names WHERE name IN (SELECT name FROM main.files WHERE {chosen})",
     ] {
         tx.execute(
@@ -230,6 +232,25 @@ fn forget_unused(tx: &Transaction) -> Result<()> {
     tx.execute(
         "DELETE FROM cache.contents WHERE unused_since < ?1",
         [now - KEEP_UNUSED_SECS],
+    )?;
+    // What processors said costs the most to learn again, so it's kept as long.
+    tx.execute(
+        "UPDATE cache.outputs SET unused_since = NULL
+         WHERE unused_since IS NOT NULL AND hash IN (SELECT hash FROM main.files)",
+        [],
+    )?;
+    tx.execute(
+        "UPDATE cache.outputs SET unused_since = ?1
+         WHERE unused_since IS NULL AND hash NOT IN (SELECT hash FROM main.files WHERE hash IS NOT NULL)",
+        [now],
+    )?;
+    tx.execute(
+        "DELETE FROM cache.outputs WHERE unused_since < ?1",
+        [now - KEEP_UNUSED_SECS],
+    )?;
+    tx.execute(
+        "DELETE FROM cache.extras WHERE hash NOT IN (SELECT hash FROM cache.outputs)",
+        [],
     )?;
     meaning::forget_unused(tx)?;
     Ok(())
@@ -292,6 +313,7 @@ struct Writer<'t> {
     fts_delete: Statement<'t>,
     set_hash: Statement<'t>,
     cached_text: Statement<'t>,
+    full_text: Statement<'t>,
     cache_text: Statement<'t>,
     scan_id: i64,
     /// Whether every file's text is read again, because the text limit changed.
@@ -300,7 +322,7 @@ struct Writer<'t> {
 }
 
 /// A file's row: its id, kind, size, times, level, whether it's outside projects,
-/// and whether the cache has its text, if it has any.
+/// and whether the cache has what was learned from it, if anything was.
 type Found = (i64, String, Option<i64>, i64, i64, i64, bool, bool);
 
 impl<'t> Writer<'t> {
@@ -314,6 +336,7 @@ impl<'t> Writer<'t> {
             find: tx.prepare(
                 "SELECT id, kind, size, mtime_ns, ctime_ns, level, project_id IS NULL,
                         hash IS NULL OR hash IN (SELECT hash FROM cache.contents)
+                            OR hash IN (SELECT hash FROM cache.outputs)
                  FROM files WHERE path = ?1",
             )?,
             insert: tx.prepare(
@@ -332,6 +355,7 @@ impl<'t> Writer<'t> {
             )?,
             fts_delete: tx.prepare("DELETE FROM files_fts WHERE rowid = ?1")?,
             set_hash: tx.prepare("UPDATE files SET hash = ?2 WHERE id = ?1")?,
+            full_text: tx.prepare("SELECT text FROM cache.full_texts WHERE hash = ?1")?,
             cached_text: tx
                 .prepare("SELECT text FROM cache.contents WHERE hash = ?1 AND text_limit = ?2")?,
             cache_text: tx.prepare(
@@ -403,7 +427,9 @@ impl<'t> Writer<'t> {
         let unchanged = !self.reread
             && found.is_some_and(
                 |(_, kind, size, mtime_ns, ctime_ns, level, outside, cached)| {
-                    cached
+                    // Only text read from a file is looked for in the cache; a hash
+                    // kept for another reason, like finding duplicates, stays.
+                    (cached || content.is_none())
                         && kind == row.kind.as_str()
                         && size == row.size
                         && mtime_ns == stamp.mtime_ns
@@ -417,12 +443,16 @@ impl<'t> Writer<'t> {
         }
 
         let hash = content.and_then(hash::of_file);
-        let text = match (content, hash) {
-            (Some(path), Some(hash)) => self.text(path, row.ext, &hash)?,
-            _ => None,
-        };
+        if let (Some(path), Some(hash)) = (content, hash) {
+            self.text(path, row.ext, &hash)?;
+        }
         self.set_hash.execute(params![id, hash])?;
         let name_words = format!("{} {}", row.name, words(row.name));
+        // The file's text with what processors said about the same content.
+        let text: Option<String> = match hash {
+            Some(hash) => self.full_text.query_row([hash], |r| r.get(0)).optional()?,
+            None => None,
+        };
         let body = text.as_deref().map(words).unwrap_or_default();
         self.fts_delete.execute([id])?;
         self.fts_insert
@@ -430,19 +460,19 @@ impl<'t> Writer<'t> {
         Ok(Some(id))
     }
 
-    /// The text of the file at `path`, from the cache when it has this content.
-    fn text(&mut self, path: &Path, ext: &str, hash: &Hash) -> Result<Option<String>> {
+    /// Reads the text of the file at `path` into the cache, unless it has the text
+    /// of this content already.
+    fn text(&mut self, path: &Path, ext: &str, hash: &Hash) -> Result<()> {
         let limit = self.text_limit as i64;
-        let cached: Option<Option<String>> = self
+        let cached = self
             .cached_text
-            .query_row(params![hash, limit], |r| r.get(0))
+            .query_row(params![hash, limit], |_| Ok(()))
             .optional()?;
-        if let Some(text) = cached {
-            return Ok(text);
+        if cached.is_none() {
+            let text = text::read(path, ext, self.text_limit);
+            self.cache_text.execute(params![hash, limit, text])?;
         }
-        let text = text::read(path, ext, self.text_limit);
-        self.cache_text.execute(params![hash, limit, text])?;
-        Ok(text)
+        Ok(())
     }
 }
 

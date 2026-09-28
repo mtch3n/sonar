@@ -80,12 +80,24 @@ pub struct ProviderInfo {
     known: bool,
 }
 
+/// Every provider, looked up in the keychain at once, since each lookup can take
+/// a moment.
 fn providers(settings: &Settings) -> Vec<ProviderInfo> {
-    settings
-        .provider_ids()
-        .into_iter()
-        .filter_map(|id| {
-            let provider = settings.provider(&id)?;
+    let ids = settings.provider_ids();
+    let found: Vec<Option<sonar_models::Provider>> = std::thread::scope(|scope| {
+        let lookups: Vec<_> = ids
+            .iter()
+            .map(|id| scope.spawn(move || settings.provider(id)))
+            .collect();
+        lookups
+            .into_iter()
+            .map(|lookup| lookup.join().ok().flatten())
+            .collect()
+    });
+    ids.into_iter()
+        .zip(found)
+        .filter_map(|(id, provider)| {
+            let provider = provider?;
             let own = settings.provider_settings(&id)?;
             Some(ProviderInfo {
                 local: provider.is_local(),
@@ -182,10 +194,11 @@ fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
         .collect()
 }
 
+/// Runs off the main thread: it asks the keychain, which can be slow.
 #[tauri::command]
-pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
+pub async fn settings_get(launcher: State<'_, Launcher>) -> Result<Editor, String> {
     let path = &launcher.paths().settings;
-    Editor {
+    Ok(Editor {
         settings: launcher.current_settings(),
         plugins: plugins(&launcher),
         editors: tools(sonar_apps::editors()),
@@ -197,7 +210,7 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
         kinds: kinds(),
         models: models(&launcher.paths().models),
         providers: providers(&launcher.current_settings()),
-    }
+    })
 }
 
 #[tauri::command]

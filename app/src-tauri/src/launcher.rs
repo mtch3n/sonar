@@ -21,7 +21,8 @@ use sonar_plugins::{
 };
 use sonar_settings::{Settings, Theme};
 
-use crate::meaning::QueryModel;
+use crate::learner::QueryModel;
+use sonar_plugins::processor::ProcessorPlugin;
 use tauri::{AppHandle, Manager, State, ipc::Channel};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
@@ -53,6 +54,8 @@ pub struct Launcher {
 /// the bar is open, so edits to a plugin apply the next time it opens.
 struct Session {
     plugins: Vec<Plugin>,
+    /// Plugins that are turned on and only process files.
+    processors: Vec<Manifest>,
     /// Plugins that are installed but turned off in the settings.
     disabled: Vec<Manifest>,
     catalog: OnceCell<Arc<Catalog>>,
@@ -108,6 +111,8 @@ enum Command {
     Terminal(String),
     /// A file or folder, read and learned again.
     Reprocess(String),
+    /// Search for files like this one.
+    Similar(String),
 }
 
 #[derive(Clone, Serialize)]
@@ -262,8 +267,24 @@ impl Launcher {
             .plugins
             .iter()
             .map(|plugin| plugin.external.manifest.clone())
+            .chain(session.processors.iter().cloned())
             .chain(session.disabled.iter().cloned())
             .collect()
+    }
+
+    /// The processor plugins that are turned on, ready to look at files.
+    pub fn processors(&self) -> Vec<ProcessorPlugin> {
+        let bundled = self.paths.bundled.clone();
+        self.current_settings()
+            .processors(&self.paths, move |manifest| {
+                // Sonar's own plugins are this program, which needs the AppImage's
+                // libraries; other plugins get the user's environment.
+                if manifest.dir.starts_with(&bundled) {
+                    host::prepare_bundled
+                } else {
+                    host::prepare_plugin
+                }
+            })
     }
 
     pub fn add_notice(&self, notice: String) {
@@ -451,7 +472,13 @@ impl Launcher {
         let enabled = session
             .plugins
             .iter()
-            .map(|plugin| (&plugin.external.manifest, plugin.keyword.as_deref(), true));
+            .map(|plugin| (&plugin.external.manifest, plugin.keyword.as_deref(), true))
+            .chain(
+                session
+                    .processors
+                    .iter()
+                    .map(|manifest| (manifest, None, true)),
+            );
         let disabled = session
             .disabled
             .iter()
@@ -503,6 +530,7 @@ impl Launcher {
             .plugins
             .iter()
             .map(|p| p.external.manifest.id.clone())
+            .chain(session.processors.iter().map(|m| m.id.clone()))
             .chain(session.disabled.iter().map(|m| m.id.clone()))
             .collect();
         let mut sections = Vec::new();
@@ -590,6 +618,16 @@ impl Launcher {
                     Path::new(&path),
                 )?;
                 Ok(close(app))
+            }
+            Command::Similar(path) => {
+                let home = self.paths.home.to_string_lossy();
+                let path = match path.strip_prefix(home.as_ref()) {
+                    Some(rest) => format!("~{rest}"),
+                    None => path,
+                };
+                Ok(Outcome::Fill {
+                    text: format!("similar:\"{path}\""),
+                })
             }
             Command::Reprocess(path) => {
                 let files = lock(&self.index)
@@ -701,6 +739,7 @@ impl Session {
     fn empty() -> Session {
         Session {
             plugins: Vec::new(),
+            processors: Vec::new(),
             disabled: Vec::new(),
             catalog: OnceCell::new(),
         }
@@ -722,12 +761,18 @@ impl Session {
         manifests.retain(|own| !installed.iter().any(|m| m.id == own.id));
         manifests.extend(installed);
         let mut plugins: Vec<Plugin> = Vec::new();
+        let mut processors = Vec::new();
         let mut disabled = Vec::new();
         let mut keywords = vec![PLUGINS_KEYWORD.to_owned()];
         for manifest in manifests {
             let config = settings.plugin(&manifest.id);
             if !config.enabled {
                 disabled.push(manifest);
+                continue;
+            }
+            // Plugins that only process files answer no searches.
+            if !manifest.searches() {
+                processors.push(manifest);
                 continue;
             }
             let (values, problems) = sonar_plugins::resolve(&manifest.settings, &config.values);
@@ -772,6 +817,7 @@ impl Session {
         }
         Session {
             plugins,
+            processors,
             disabled,
             catalog: OnceCell::new(),
         }
@@ -841,6 +887,7 @@ impl Command {
             Command::Edit(_) => "Open in editor",
             Command::Terminal(_) => "Open in terminal",
             Command::Reprocess(_) => "Read again",
+            Command::Similar(_) => "Find similar",
         }
     }
 }
@@ -1060,7 +1107,14 @@ fn file_draft(hit: Hit, home: &Path, now: i64, editor: bool) -> Draft {
         }),
         label: None,
         alt_label: None,
-        more: vec![Command::Reprocess(hit.path)],
+        more: if matches!(hit.kind, Kind::Folder | Kind::Project) {
+            vec![Command::Reprocess(hit.path)]
+        } else {
+            vec![
+                Command::Similar(hit.path.clone()),
+                Command::Reprocess(hit.path),
+            ]
+        },
     }
 }
 
@@ -1314,6 +1368,7 @@ mod tests {
             position: sonar_plugins::Position::Top,
             requires: Vec::new(),
             platforms: Vec::new(),
+            process: None,
         };
         let item = |icon: Option<&str>, image: Option<&str>| Item {
             title: "3,176.54 TWD".into(),

@@ -39,7 +39,7 @@ CREATE TRIGGER files_deleted AFTER DELETE ON files BEGIN
 END;
 ";
 
-const CACHE_VERSION: i64 = 2;
+const CACHE_VERSION: i64 = 5;
 
 /// What Sonar learned from each file's content, by its hash. It's kept in a file of
 /// its own, so it outlives the index when that is rebuilt, and entries no file has
@@ -77,6 +77,42 @@ CREATE TABLE cache.names (
 ) WITHOUT ROWID;
 CREATE TABLE cache.vectors_version (version INTEGER NOT NULL);
 INSERT INTO cache.vectors_version VALUES (0);
+-- What each processor said about content with a hash, or why it couldn't.
+CREATE TABLE cache.outputs (
+    hash BLOB NOT NULL,
+    processor TEXT NOT NULL,
+    version TEXT NOT NULL,
+    text TEXT,
+    tags TEXT,
+    labels TEXT,
+    algo TEXT,
+    fingerprint INTEGER,
+    -- A video's length in seconds, since only videos of about the same length are
+    -- the same video.
+    duration REAL,
+    error TEXT,
+    unused_since INTEGER,
+    PRIMARY KEY (hash, processor)
+) WITHOUT ROWID;
+-- The processors' text and tags for a hash, searched with its own text; version
+-- counts changes, so it's embedded again.
+CREATE TABLE cache.extras (
+    hash BLOB PRIMARY KEY,
+    text TEXT NOT NULL,
+    version INTEGER NOT NULL
+) WITHOUT ROWID;
+-- Everything searched for content with a hash, and what it depends on. A view
+-- names tables of its own database without a schema, so cache.db opens on its own.
+CREATE VIEW cache.full_texts AS
+SELECT hash, text, policy FROM (
+    SELECT c.hash AS hash,
+           trim(coalesce(c.text, '') || coalesce(char(10) || x.text, '')) AS text,
+           c.text_limit || '/' || coalesce(x.version, 0) AS policy
+    FROM contents c LEFT JOIN extras x ON x.hash = c.hash
+    UNION ALL
+    SELECT x.hash, x.text, '0/' || x.version FROM extras x
+    WHERE x.hash NOT IN (SELECT hash FROM contents)
+) WHERE text != '';
 ";
 
 pub(crate) fn open(path: &Path) -> Result<Connection> {
@@ -116,7 +152,10 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
     if version != CACHE_VERSION {
         let tx = conn.transaction()?;
         tx.execute_batch(
-            "DROP TABLE IF EXISTS cache.contents;
+            "DROP VIEW IF EXISTS cache.full_texts;
+             DROP TABLE IF EXISTS cache.outputs;
+             DROP TABLE IF EXISTS cache.extras;
+             DROP TABLE IF EXISTS cache.contents;
              DROP TABLE IF EXISTS cache.vectors;
              DROP TABLE IF EXISTS cache.embedded;
              DROP TABLE IF EXISTS cache.names;

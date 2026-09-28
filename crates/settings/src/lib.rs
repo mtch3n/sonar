@@ -444,6 +444,56 @@ impl Settings {
         }
     }
 
+    /// The processor plugins that are turned on, from Sonar's own and the installed
+    /// ones, ready to look at files. One whose model setting is empty or names an
+    /// unknown provider is left out until it names one. `prepare` says how each
+    /// plugin's program is started.
+    pub fn processors(
+        &self,
+        paths: &sonar_core::Paths,
+        prepare: impl Fn(&sonar_plugins::Manifest) -> sonar_plugins::Prepare,
+    ) -> Vec<sonar_plugins::processor::ProcessorPlugin> {
+        let (mut manifests, _) = sonar_plugins::discover(&paths.bundled);
+        let (installed, _) = sonar_plugins::discover(&paths.plugins);
+        manifests.retain(|own| !installed.iter().any(|m| m.id == own.id));
+        manifests.extend(installed);
+        manifests
+            .into_iter()
+            .filter(|manifest| manifest.process.is_some() && self.plugin(&manifest.id).enabled)
+            .filter_map(|manifest| {
+                let config = self.plugin(&manifest.id);
+                let (values, _) = sonar_plugins::resolve(&manifest.settings, &config.values);
+                let model = match manifest.process.as_ref()?.model.as_deref() {
+                    Some(key) => Some(self.processor_model(values.get(key)?.as_str()?)?),
+                    None => None,
+                };
+                let data = paths.plugin_data.join(&manifest.id);
+                let prepare = prepare(&manifest);
+                sonar_plugins::processor::ProcessorPlugin::new(
+                    manifest,
+                    data,
+                    values,
+                    model,
+                    BTreeMap::new(),
+                    prepare,
+                )
+            })
+            .collect()
+    }
+
+    /// The model a processor's setting names as `provider:model`, with where the
+    /// provider is and its key.
+    fn processor_model(&self, named: &str) -> Option<sonar_plugins::processor::Model> {
+        let (provider, name) = named.trim().split_once(':')?;
+        let provider = self.provider(provider)?;
+        Some(sonar_plugins::processor::Model {
+            local: provider.is_local(),
+            url: provider.url,
+            key: provider.key,
+            name: name.to_owned(),
+        })
+    }
+
     pub fn plugin(&self, id: &str) -> PluginSettings {
         self.plugins.get(id).cloned().unwrap_or_default()
     }

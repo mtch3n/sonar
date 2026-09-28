@@ -3,7 +3,10 @@ use std::{
     path::{MAIN_SEPARATOR, MAIN_SEPARATOR_STR, Path},
 };
 
-use crate::Kind;
+use crate::{
+    Kind,
+    dupes::{DEFAULT_DISTANCE, Wanted},
+};
 
 pub const DEFAULT_LIMIT: usize = 20;
 
@@ -20,6 +23,10 @@ pub struct Query {
     pub size_below: Option<u64>,
     /// `None` when the query has no `limit:` filter; search then returns [`DEFAULT_LIMIT`] hits.
     pub limit: Option<usize>,
+    /// `dupes:`: files that are copies of each other, or look like it.
+    pub dupes: Option<Wanted>,
+    /// `similar:`: files like the one at this path.
+    pub similar: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -57,9 +64,11 @@ enum Key {
     Before,
     Size,
     Limit,
+    Dupes,
+    Similar,
 }
 
-const KEYS: [(&str, Key); 9] = [
+const KEYS: [(&str, Key); 11] = [
     ("kind", Key::Kind),
     ("ext", Key::Ext),
     ("in", Key::In),
@@ -69,6 +78,8 @@ const KEYS: [(&str, Key); 9] = [
     ("before", Key::Before),
     ("size", Key::Size),
     ("limit", Key::Limit),
+    ("dupes", Key::Dupes),
+    ("similar", Key::Similar),
 ];
 
 impl Query {
@@ -88,6 +99,8 @@ impl Query {
             size_above: None,
             size_below: None,
             limit: None,
+            dupes: None,
+            similar: None,
         };
         for token in tokens(input) {
             if let Some(word) = token.strip_prefix('-').filter(|w| !w.is_empty()) {
@@ -107,6 +120,10 @@ impl Query {
 
     fn apply(&mut self, key: Key, raw: &str, home: &Path, now: i64) -> Result<(), ParseError> {
         let value = unquote(raw);
+        if let Key::Dupes = key {
+            self.dupes = Some(wanted(&value)?);
+            return Ok(());
+        }
         if value.is_empty() {
             return Ok(());
         }
@@ -142,6 +159,13 @@ impl Query {
                 (Some('<'), amount) => self.size_below = Some(size(amount)?),
                 (_, amount) => self.size_above = Some(size(amount)?),
             },
+            Key::Dupes => {}
+            Key::Similar => {
+                self.similar = Some(match within(&value, home) {
+                    Within::Path(path) => path,
+                    Within::Folder(relative) => home.join(relative).display().to_string(),
+                })
+            }
             Key::Limit => {
                 let limit = value.parse().ok().filter(|n| *n > 0).ok_or_else(|| {
                     ParseError(format!("`limit:` needs a positive number, not `{value}`"))
@@ -195,6 +219,39 @@ fn split_op(value: &str) -> (Option<char>, &str) {
         Some(op @ ('<' | '>')) => (Some(op), &value[1..]),
         _ => (None, value),
     }
+}
+
+/// What `dupes:` asks for: everything, or a list of `same`, `looks` and `names`,
+/// where `looks` can say how many bits fingerprints may differ in, like `looks<12`.
+fn wanted(value: &str) -> Result<Wanted, ParseError> {
+    if value.is_empty() || value == "all" {
+        return Ok(Wanted::default());
+    }
+    let mut wanted = Wanted {
+        same: false,
+        looks: None,
+        names: false,
+    };
+    for part in list(value) {
+        match part {
+            "same" | "exact" => wanted.same = true,
+            "names" | "name" => wanted.names = true,
+            "looks" => wanted.looks = Some(DEFAULT_DISTANCE),
+            _ => {
+                let distance = part
+                    .strip_prefix("looks<")
+                    .and_then(|d| d.parse().ok())
+                    .filter(|d| *d <= 32)
+                    .ok_or_else(|| {
+                        ParseError(format!(
+                            "`dupes:` takes same, looks, looks<12 or names, not `{part}`"
+                        ))
+                    })?;
+                wanted.looks = Some(distance);
+            }
+        }
+    }
+    Ok(wanted)
 }
 
 fn within(value: &str, home: &Path) -> Within {

@@ -48,6 +48,8 @@ Words of three letters or more also match the text inside files outside code pro
 | `after:` `before:` | `after:2026-01-01` | changed on or after, or before, a date |
 | `size:` | `size:>100mb`, `size:<10kb` | bigger or smaller than |
 | `limit:` | `limit:50` | number of results, 20 by default |
+| `dupes:` | `dupes:`, `dupes:same`, `dupes:looks<12`, `dupes:names` | files that are copies of each other, or look like it; see [Duplicates](#duplicates) |
+| `similar:` | `similar:~/Pictures/beach.jpg` | files that look like this one, or are copies of it |
 | `-word` | `-draft` | leave out matches for a word |
 | `"..."` | `"tax return"` | exact words |
 
@@ -69,6 +71,25 @@ The model runs on your computer and is downloaded from Hugging Face the first ti
 `meaning.model` can also name a model behind an OpenAI-compatible API as `provider:model`, like `openai:text-embedding-3-small`, `ollama:nomic-embed-text` or `lmstudio:text-embedding-bge-m3`; see [Providers](#providers).
 
 The first two are [Model2Vec](https://github.com/MinishLab/model2vec) static models, which read about 14,000 passages from a typical home folder in five seconds; the others are transformers run with ONNX Runtime, which take a few minutes for the same and understand sentences better. Changing the model learns everything again with the new one.
+
+### Pictures and videos
+
+Two of Sonar's own plugins look at pictures and videos, once you set Images or Videos to Name and words, or Words and meaning, under What's indexed:
+
+- Describe asks a vision model for a line about each picture and video, and a few tags, like "IKEA receipt for a desk, total 1,249 TWD" and `receipt, ikea, furniture`. They're searched like the file's own words and by meaning, so `ikea receipt` finds the photo. Set its model in Settings, under Plugins, as `provider:model`: `ollama:qwen2.5vl:3b` runs on your computer, and a provider elsewhere, like `openrouter:google/gemini-2.5-flash`, is sent the pictures, except from private folders. Videos are shown to it as four frames from across them, which needs ffmpeg. Its Language setting chooses what it writes in.
+- Fingerprint makes a perceptual hash of each picture, and of each video from 25 frames laid out in a grid, the way [Stash](https://github.com/stashapp/stash) does, so copies at other sizes or qualities are found. It runs on your computer and needs ffmpeg for videos.
+
+Both remember what they said by each file's content, so a moved or copied file isn't looked at again. Choose Read again from a file's actions to have them look again.
+
+### Duplicates
+
+`dupes:` lists files that are copies of each other, in groups, the one that could free the most space first; `sonar dupes` does the same on the command line and adds up what could be freed. It finds three kinds, and `dupes:same`, `dupes:looks` or `dupes:names` asks for one:
+
+- Files with the same content, byte for byte. Only files of 16 KB or more that share a size are read.
+- Pictures and videos that look the same, from Fingerprint's hashes: `dupes:looks` allows 8 of 64 bits to differ, and `dupes:looks<12` more. Videos also have to be about the same length.
+- Names that are another's with a copy's mark, like `report (1).pdf` or `notes copy.txt`, when their contents differ.
+
+Filters narrow it down, like `dupes: kind:video` or `dupes:same in:~/Downloads`. Find similar in a file's actions (Ctrl + K) lists the files that look like it. Sonar never removes anything; it only shows you the copies.
 
 ### Providers
 
@@ -198,6 +219,7 @@ The command-line tool updates itself with `sonar update`.
 ```sh
 sonar index
 sonar reindex ~/Documents/scans    # read and learn a file or folder again
+sonar dupes kind:video             # copies and look-alikes, and the space they take
 sonar s invoice kind:pdf
 sonar s 'kind:image modified:<7d'
 sonar s --help

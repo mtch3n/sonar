@@ -144,8 +144,19 @@ pub mod keys {
         keyring::Entry::new(KEYCHAIN_SERVICE, provider).map_err(|err| err.to_string())
     }
 
+    /// The key, if the keychain answers within two seconds: a desktop without a
+    /// keychain service can leave the call waiting far longer.
     pub fn get(provider: &str) -> Option<String> {
-        entry(provider).ok()?.get_password().ok()
+        let provider = provider.to_owned();
+        let (send, answer) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let key = entry(&provider).ok().and_then(|e| e.get_password().ok());
+            let _ = send.send(key);
+        });
+        answer
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .ok()
+            .flatten()
     }
 
     pub fn set(provider: &str, key: &str) -> Result<(), String> {

@@ -8,11 +8,14 @@ pub mod calculator;
 pub mod clipboard;
 mod clock;
 pub mod currency;
+pub mod describe;
 pub mod dns;
 mod external;
+pub mod fingerprint;
 mod manifest;
 pub mod ports;
 pub mod processes;
+pub mod processor;
 pub mod services;
 mod setting;
 pub mod store;
@@ -27,7 +30,7 @@ use serde_json::{Map, Value};
 pub use calculator::Calculator;
 pub use external::{External, Prepare};
 pub use manifest::{
-    FILE as MANIFEST, Manifest, Platform, Position, check_keyword, discover, image_url,
+    FILE as MANIFEST, Manifest, Platform, Position, Process, check_keyword, discover, image_url,
 };
 pub use setting::{Choice, Field, Setting, resolve};
 

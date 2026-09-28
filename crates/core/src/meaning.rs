@@ -179,19 +179,18 @@ pub(crate) fn embed(
             stats.stopped = true;
             return Ok(stats);
         }
-        let pending: Vec<(Hash, i64, String, String)> = conn
+        let pending: Vec<(Hash, String, String, String)> = conn
             .prepare(&format!(
-                "SELECT c.hash, c.text_limit, c.text,
-                        (SELECT kind FROM files f WHERE f.hash = c.hash LIMIT 1)
-                 FROM cache.contents c
-                 WHERE c.text IS NOT NULL
-                   AND c.hash IN (
+                "SELECT t.hash, t.policy, t.text,
+                        (SELECT kind FROM files f WHERE f.hash = t.hash LIMIT 1)
+                 FROM cache.full_texts t
+                 WHERE t.hash IN (
                        SELECT hash FROM files
                        WHERE level >= ?1 AND hash IS NOT NULL{shared})
                    AND NOT EXISTS (
                        SELECT 1 FROM cache.embedded e
-                       WHERE e.model = ?2 AND e.hash = c.hash
-                         AND e.policy = ?3 || '/' || c.text_limit)
+                       WHERE e.model = ?2 AND e.hash = t.hash
+                         AND e.policy = ?3 || '/' || t.policy)
                  LIMIT ?4"
             ))?
             .query_map(
@@ -213,7 +212,7 @@ pub(crate) fn embed(
         }
 
         let mut embedded = Vec::with_capacity(pending.len());
-        for (hash, limit, text, kind) in &pending {
+        for (hash, policy, text, kind) in &pending {
             let kind = Kind::from_name(kind).unwrap_or(Kind::Other);
             let ranges = chunks(text);
             let mut vectors = Vec::with_capacity(ranges.len());
@@ -225,7 +224,7 @@ pub(crate) fn embed(
                     return Ok(stats);
                 }
             }
-            embedded.push((hash, *limit, ranges, vectors));
+            embedded.push((hash, policy, ranges, vectors));
         }
 
         let tx = conn.transaction()?;
@@ -239,7 +238,7 @@ pub(crate) fn embed(
             let mut done = tx.prepare(
                 "INSERT OR REPLACE INTO cache.embedded (model, hash, policy) VALUES (?1, ?2, ?3)",
             )?;
-            for (hash, limit, ranges, vectors) in &embedded {
+            for (hash, policy, ranges, vectors) in &embedded {
                 clear.execute(params![model, hash])?;
                 for (i, ((start, end), vector)) in ranges.iter().zip(vectors).enumerate() {
                     put.execute(params![
@@ -251,7 +250,7 @@ pub(crate) fn embed(
                         to_blob(vector)
                     ])?;
                 }
-                done.execute(params![model, hash, format!("{CHUNKING}/{limit}")])?;
+                done.execute(params![model, hash, format!("{CHUNKING}/{policy}")])?;
                 stats.chunks += ranges.len() as u64;
             }
         }
@@ -305,13 +304,12 @@ pub(crate) fn pending(conn: &Connection, model: &str) -> Result<(u64, u64)> {
         |r| r.get(0),
     )?;
     let files: i64 = conn.query_row(
-        "SELECT count(*) FROM cache.contents c
-         WHERE c.text IS NOT NULL
-           AND c.hash IN (SELECT hash FROM files WHERE level >= ?1 AND hash IS NOT NULL)
+        "SELECT count(*) FROM cache.full_texts t
+         WHERE t.hash IN (SELECT hash FROM files WHERE level >= ?1 AND hash IS NOT NULL)
            AND NOT EXISTS (
                SELECT 1 FROM cache.embedded e
-               WHERE e.model = ?2 AND e.hash = c.hash
-                 AND e.policy = ?3 || '/' || c.text_limit)",
+               WHERE e.model = ?2 AND e.hash = t.hash
+                 AND e.policy = ?3 || '/' || t.policy)",
         params![meaning, model, CHUNKING],
         |r| r.get(0),
     )?;
@@ -442,10 +440,10 @@ impl Store {
 /// Forgets vectors of content the cache no longer has, and of names no file has.
 pub(crate) fn forget_unused(conn: &Connection) -> Result<()> {
     let removed = conn.execute(
-        "DELETE FROM cache.vectors WHERE hash NOT IN (SELECT hash FROM cache.contents)",
+        "DELETE FROM cache.vectors WHERE hash NOT IN (SELECT hash FROM cache.full_texts)",
         [],
     )? + conn.execute(
-        "DELETE FROM cache.embedded WHERE hash NOT IN (SELECT hash FROM cache.contents)",
+        "DELETE FROM cache.embedded WHERE hash NOT IN (SELECT hash FROM cache.full_texts)",
         [],
     )? + conn.execute(
         "DELETE FROM cache.names WHERE name NOT IN (SELECT name FROM main.files)",

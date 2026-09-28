@@ -139,6 +139,55 @@ Sonar carries out actions itself, so plugins don't need platform-specific code t
 
 Every action except `fill` closes the search bar.
 
+## Processors
+
+A plugin can also, or only, look at files as Sonar indexes them, and say what it learned: a line of text and tags that are then searched like the file's own words and by meaning, labels, or a perceptual fingerprint that finds look-alikes. Sonar's own Describe and Fingerprint plugins are processors. Add a `[process]` table to `plugin.toml`; a plugin that only processes needs no top-level `command`:
+
+```toml
+name = "Receipt reader"
+description = "Totals and shops from photos of receipts"
+
+[process]
+kinds = ["image"]
+command = ["python3", "read_receipt.py"]
+version = "2"
+model = "model"   # optional: the key of your setting that names a model as provider:model
+
+[[settings]]
+key = "model"
+title = "Model"
+type = "text"
+default = "ollama:qwen2.5vl:3b"
+```
+
+| Key | Required | Meaning |
+|---|---|---|
+| `kinds` | yes | the kinds of file it's given, like `image`, `video` or `pdf`. Only files whose kind is set to `text` or `meaning` under What's indexed are |
+| `command` | yes | the program that processes, and its arguments, found like `command` is |
+| `version` | no | change it when your plugin would say something different, and Sonar gives it every file again. `1` by default |
+| `frames` | no | frames of each video it wants, spread across the video, instead of the video itself. Sonar takes them with ffmpeg |
+| `model` | no | the key of one of your settings that names a model as `provider:model`. Sonar sends that provider's address and key with each file, so your plugin never handles keys itself |
+
+Sonar sends one line of JSON per file and waits for one line back, up to five minutes. Files are given once for each content: a copy, a moved file or one indexed again isn't sent again, unless `version` or the model changes.
+
+```json
+{"path": "/home/me/Pictures/IMG_0142.jpg", "kind": "image", "hash": "9f2c…", "frames": [], "duration": null,
+ "settings": {"model": "ollama:qwen2.5vl:3b"},
+ "model": {"url": "http://localhost:11434/v1", "key": null, "name": "qwen2.5vl:3b", "local": true},
+ "labels": {"receipt": "proof of purchase listing items and a total"}}
+```
+
+For a video with `frames`, `frames` lists paths of JPEG frames and `duration` is its length in seconds. Answer with any of:
+
+```json
+{"text": "IKEA receipt for a desk, total 1,249 TWD", "tags": ["receipt", "ikea"], "labels": ["receipt"],
+ "fingerprint": {"algo": "my-phash", "bits": "f0e1d2c3b4a59687"}}
+```
+
+or `{"error": "…"}`, which Sonar keeps so the file isn't tried again until `version` changes. `bits` is 64 bits as 16 hex digits; only fingerprints with the same `algo` are compared.
+
+A processor whose model isn't on this computer is never given files from the folders the settings keep `private`. Sonar can't see what your program does with a file itself, though: if it sends files anywhere, say so in its description.
+
 ## Publish a plugin
 
 Push the plugin folder to a public GitHub repository, with `plugin.toml` at the root. People install it by typing `plugins` and the repository, like `plugins alice/sonar-emoji`. The plugin's id is the repository name without a `sonar-` prefix, so `alice/sonar-emoji` installs as `emoji`.

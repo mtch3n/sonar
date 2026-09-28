@@ -6,7 +6,7 @@ use std::{
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use sonar_core::{Hit, Index, Paths, Query, Rules};
+use sonar_core::{Hit, Index, Likeness, Paths, ProcessOptions, Processor, Query, Rules, Wanted};
 use sonar_models::Load;
 use sonar_settings::Settings;
 
@@ -25,6 +25,19 @@ enum Command {
     Reindex {
         #[arg(required = true, help = "Files or folders to read again")]
         paths: Vec<std::path::PathBuf>,
+    },
+    #[command(about = "List files that are copies of each other, or look like it")]
+    Dupes {
+        #[arg(long, help = "Only files with the same content")]
+        same: bool,
+        #[arg(long, help = "Only pictures and videos that look alike")]
+        looks: bool,
+        #[arg(long, help = "Only names like `report (1).pdf`")]
+        names: bool,
+        #[arg(long, default_value_t = sonar_core::DEFAULT_DISTANCE, help = "How many of 64 bits look-alikes may differ in")]
+        distance: u32,
+        #[arg(help = "Filters, like `kind:video` or `in:~/Pictures`")]
+        filters: Vec<String>,
     },
     #[command(about = "Search the index", visible_alias = "s", after_help = SYNTAX)]
     Search {
@@ -71,6 +84,22 @@ fn main() -> Result<()> {
                 );
             }
             run_index(&mut index, &paths)
+        }
+        Command::Dupes {
+            same,
+            looks,
+            names,
+            distance,
+            filters,
+        } => {
+            let (paths, index) = open()?;
+            let all = !(same || looks || names);
+            let wanted = Wanted {
+                same: all || same,
+                looks: (all || looks).then_some(distance),
+                names: all || names,
+            };
+            run_dupes(&index, &paths, wanted, &filters.join(" "))
         }
         Command::Search { query } => {
             let (paths, mut index) = open()?;
@@ -134,7 +163,54 @@ fn run_index(index: &mut Index, paths: &Paths) -> Result<()> {
     if settings.meaning.enabled {
         embed(index, paths, &settings)?;
     }
+    if process(index, paths, &settings)? && settings.meaning.enabled {
+        // What processors said is searched by meaning too.
+        embed(index, paths, &settings)?;
+    }
     Ok(())
+}
+
+/// Has the processor plugins that are turned on look at what's new, and says
+/// whether any learned something.
+fn process(index: &mut Index, paths: &Paths, settings: &Settings) -> Result<bool> {
+    let private = settings.private_folders(&paths.home);
+    let options = ProcessOptions {
+        root: &paths.home,
+        frames: &paths.frames,
+        private: &private,
+    };
+    let tty = std::io::stderr().is_terminal();
+    let mut learned = false;
+    for mut processor in settings.processors(paths, |_| |_| {}) {
+        let id = Processor::id(&processor).to_owned();
+        let started = Instant::now();
+        let stats = index.process(&mut processor, &options, &mut |stats| {
+            if tty && stats.left + stats.done + stats.failed > 0 {
+                eprint!(
+                    "\r{id}: {} of {}",
+                    stats.done + stats.failed,
+                    stats.done + stats.failed + stats.left
+                );
+            }
+            true
+        })?;
+        if tty && stats.done + stats.failed > 0 {
+            eprintln!();
+        }
+        if stats.done + stats.failed > 0 {
+            println!(
+                "{id} looked at {} files in {:.1}s{}",
+                stats.done + stats.failed,
+                started.elapsed().as_secs_f64(),
+                match stats.failed {
+                    0 => String::new(),
+                    n => format!(", and couldn't read {n}"),
+                }
+            );
+        }
+        learned |= stats.done > 0;
+    }
+    Ok(learned)
 }
 
 /// Embeds what the scan found for searching by meaning, downloading the model the
@@ -178,6 +254,48 @@ fn embed(index: &mut Index, paths: &Paths, settings: &Settings) -> Result<()> {
         stats.files,
         stats.chunks,
         started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+fn run_dupes(index: &Index, paths: &Paths, wanted: Wanted, filters: &str) -> Result<()> {
+    let query = Query::parse(filters, &paths.home)?;
+    let groups = index.duplicates(&query, wanted)?;
+    if groups.is_empty() {
+        println!("No copies found");
+        return Ok(());
+    }
+    let color = std::io::stdout().is_terminal();
+    let (dim, bold, reset) = if color {
+        ("\x1b[2m", "\x1b[1m", "\x1b[0m")
+    } else {
+        ("", "", "")
+    };
+    let mut spare = 0;
+    for group in &groups {
+        let how = match group.likeness {
+            Likeness::Same => "Same content".to_owned(),
+            Likeness::Looks(0) => "Look the same".to_owned(),
+            Likeness::Looks(bits) => format!("Look alike, up to {bits} bits apart"),
+            Likeness::Name => "Same name".to_owned(),
+        };
+        println!(
+            "{bold}{how}{reset}{dim} · {} spare{reset}",
+            human_size(group.wasted)
+        );
+        for hit in &group.files {
+            println!(
+                "  {}  {dim}{}{reset}",
+                tilde(&hit.path, &paths.home),
+                human_size(hit.size.unwrap_or(0))
+            );
+        }
+        spare += group.wasted;
+    }
+    println!(
+        "{} groups; keeping only the largest of each would free {}",
+        groups.len(),
+        human_size(spare)
     );
     Ok(())
 }

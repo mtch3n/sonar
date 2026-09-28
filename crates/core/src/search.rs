@@ -4,7 +4,7 @@ use anyhow::Result;
 use rusqlite::{Connection, params_from_iter, types::Value};
 
 use crate::{
-    DEFAULT_LIMIT, Embedder, Kind, Level, Query, Term, Within,
+    DEFAULT_LIMIT, Embedder, Kind, Level, Likeness, Query, Term, Within, dupes,
     meaning::{Source, Store},
     text,
     words::words,
@@ -51,6 +51,52 @@ pub(crate) fn search(
 ) -> Result<Vec<Hit>> {
     let limit = q.limit.unwrap_or(DEFAULT_LIMIT);
     let (filters, filter_args) = filters(q);
+    if let Some(path) = &q.similar {
+        let distance = q
+            .dupes
+            .and_then(|w| w.looks)
+            .unwrap_or(dupes::DEFAULT_DISTANCE);
+        let mut near = dupes::similar(conn, path, distance, &filters, &filter_args)?;
+        near.truncate(limit);
+        return Ok(near
+            .into_iter()
+            .map(|(mut hit, apart)| {
+                hit.line = Some(match apart {
+                    0 => "Looks the same".to_owned(),
+                    n => format!("Looks alike: {n} of 64 bits apart"),
+                });
+                hit
+            })
+            .collect());
+    }
+    if let Some(wanted) = q.dupes {
+        let mut hits = Vec::new();
+        for group in dupes::groups(conn, wanted, &filters, &filter_args)? {
+            let first = group.files[0].name.clone();
+            let count = group.files.len();
+            for (i, mut hit) in group.files.into_iter().enumerate() {
+                hit.line = Some(match (i, group.likeness) {
+                    (0, likeness) => format!(
+                        "{} · {count} files · {} spare",
+                        match likeness {
+                            Likeness::Same => "Same content",
+                            Likeness::Looks(_) => "Look alike",
+                            Likeness::Name => "Same name",
+                        },
+                        dupes::human_size(group.wasted)
+                    ),
+                    (_, Likeness::Same) => format!("Copy of {first}"),
+                    (_, Likeness::Looks(_)) => format!("Looks like {first}"),
+                    (_, Likeness::Name) => format!("Named like {first}"),
+                });
+                hits.push(hit);
+            }
+            if hits.len() >= limit {
+                break;
+            }
+        }
+        return Ok(hits);
+    }
     let text = join(q.terms.iter().map(|t| term_expr(t, Scope::Everything)), " ");
 
     let mut sql = String::from("SELECT f.id, ");
@@ -124,8 +170,8 @@ pub(crate) fn search(
         .filter(|w| !w.is_empty())
         .collect();
     let mut row = conn.prepare(
-        "SELECT f.path, f.name, f.kind, f.size, f.mtime, c.text
-         FROM files f LEFT JOIN cache.contents c ON c.hash = f.hash WHERE f.id = ?1",
+        "SELECT f.path, f.name, f.kind, f.size, f.mtime, t.text
+         FROM files f LEFT JOIN cache.full_texts t ON t.hash = f.hash WHERE f.id = ?1",
     )?;
     let mut hits = Vec::with_capacity(fused.len());
     for (id, _, found) in fused {
@@ -262,7 +308,7 @@ fn placeholders(n: usize) -> String {
 
 /// The conditions of a query's filters, as SQL to add after a WHERE on `files f`,
 /// and their arguments.
-fn filters(q: &Query) -> (String, Vec<Value>) {
+pub(crate) fn filters(q: &Query) -> (String, Vec<Value>) {
     let mut sql = String::new();
     let mut args = Vec::new();
     if q.kinds.is_empty() && q.exts.is_empty() && q.within.is_empty() {
