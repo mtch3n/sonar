@@ -2,7 +2,7 @@ name: Release
 
 # A tag like v0.1.0 publishes that version. Every night, and whenever it's run by
 # hand, main is built as a nightly: a prerelease under the `nightly` tag, versioned
-# like 0.1.0-nightly.20260928, which never becomes the latest release that
+# like 0.4.2-nightly.20260928 after 0.4.1, which never becomes the latest release that
 # installed copies update to.
 on:
   push:
@@ -48,7 +48,9 @@ jobs:
               echo "main hasn't changed since the last nightly"
               echo "skip=true" >> "$GITHUB_OUTPUT"
             fi
-            version="$version-nightly.$(date -u +%Y%m%d)"
+            # A nightly leads up to the next patch release, so it sorts above the last one.
+            IFS=. read -r major minor patch <<< "$version"
+            version="$major.$minor.$((patch + 1))-nightly.$(date -u +%Y%m%d)"
             echo "nightly=true" >> "$GITHUB_OUTPUT"
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"

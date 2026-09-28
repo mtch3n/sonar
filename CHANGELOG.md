@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.4.1] - 2026-09-28
 
 Plugins:
 - Clipboard (`clip`, on GNOME) keeps the last 200 things you copied and finds text in them; Enter copies one again and Ctrl + Enter forgets it. Copies password managers mark as secret are skipped. Sonar's GNOME extension now also reports each copy, so it replaces a clipboard extension; installed copies of the extension offer to update
@@ -16,7 +16,7 @@ Settings:
 
 Everything else:
 - Apps and windows show their own icons even when the icon file is large, like Visual Studio Code's
-- Nightly builds of main are published as a prerelease under the `nightly` tag; installed copies only update to releases
+- Nightly builds of main are published as a prerelease under the `nightly` tag, numbered for the next patch release; installed copies only update to releases
 
 ## [0.4.0] - 2026-09-28
 
