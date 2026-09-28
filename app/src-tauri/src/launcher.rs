@@ -1026,6 +1026,87 @@ mod tests {
         assert_eq!(size(481_587), "470.3 KB");
     }
 
+    fn plugin(root: &Path, id: &str, manifest: &str) {
+        let dir = root.join(id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("plugin.toml"), manifest).unwrap();
+    }
+
+    #[test]
+    fn sessions_resolve_plugin_settings_and_report_mistakes() {
+        let tmp = tempfile::tempdir().unwrap();
+        plugin(
+            tmp.path(),
+            "echo",
+            "name = \"Echo\"\ncommand = [\"echo\"]\n\n[[settings]]\nkey = \"first\"\ntitle = \"First\"\ntype = \"choice\"\noptions = [{ value = \"a\", title = \"A\" }, { value = \"b\", title = \"B\" }]\n",
+        );
+        let settings = Settings::parse(
+            "[plugins.calculator]\ncurrency = \"EUR\"\n\n[plugins.echo]\nfirst = \"c\"\nextra = 1\n",
+        )
+        .unwrap();
+        let mut notices = Vec::new();
+        let session = Session::load(tmp.path(), &settings, &mut notices);
+        assert_eq!(session.home_currency, "EUR");
+        assert_eq!(
+            session.plugins.len(),
+            1,
+            "a mistake doesn't turn the plugin off"
+        );
+        assert_eq!(
+            notices,
+            [
+                "Plugin Echo: `first` is `c`; use one of a, b; fix it under [plugins.echo] in settings.toml",
+                "Plugin Echo: there's no setting `extra`; fix it under [plugins.echo] in settings.toml",
+            ]
+        );
+
+        let settings = Settings::parse("[plugins.calculator]\ncurrency = \"XYZ\"\n").unwrap();
+        let mut notices = Vec::new();
+        let session = Session::load(tmp.path(), &settings, &mut notices);
+        assert_ne!(session.home_currency, "XYZ");
+        assert!(
+            notices[0].starts_with("Calculator: `currency` is `XYZ`"),
+            "{notices:?}"
+        );
+    }
+
+    #[test]
+    fn files_found_by_their_text_show_the_line() {
+        let home = Path::new("/home/me");
+        let hit = |line: Option<&str>| Hit {
+            path: "/home/me/scripts/backup.sh".into(),
+            name: "backup.sh".into(),
+            kind: sonar_core::Kind::Script,
+            size: Some(10),
+            mtime: 0,
+            line: line.map(str::to_owned),
+        };
+        let by_name = file_draft(hit(None), home, 0);
+        assert_eq!(by_name.subtitle.as_deref(), Some("~/scripts"));
+        let by_text = file_draft(hit(Some("rsync -av ~/Pictures nas:")), home, 0);
+        assert_eq!(
+            by_text.subtitle.as_deref(),
+            Some("rsync -av ~/Pictures nas: · ~/scripts")
+        );
+    }
+
+    #[test]
+    fn money_offers_to_copy_the_bare_number() {
+        let draft = calculator_draft(Item {
+            title: "3,176.54 TWD".into(),
+            subtitle: Some("ExchangeRate-API rates of 2026-09-28".into()),
+            action: Action::Copy("3,176.54 TWD".into()),
+            alt: Some(Action::Copy("3176.54".into())),
+        });
+        assert_eq!(draft.action.label(), "Copy");
+        assert_eq!(draft.alt.as_ref().map(Command::label), Some("Copy number"));
+        assert!(matches!(draft.alt, Some(Command::CopyNumber(n)) if n == "3176.54"));
+        assert_eq!(
+            draft.subtitle.as_deref(),
+            Some("ExchangeRate-API rates of 2026-09-28")
+        );
+    }
+
     #[test]
     fn rows_from_two_searches_ago_are_forgotten() {
         let mut results = Results::default();

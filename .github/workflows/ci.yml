@@ -38,6 +38,10 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm build
+      - name: Test the search window
+        if: runner.os == 'Linux'
+        working-directory: app
+        run: pnpm test
 
       - uses: Swatinem/rust-cache@v2
       - name: Format
