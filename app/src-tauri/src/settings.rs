@@ -570,6 +570,27 @@ mod tests {
     }
 
     #[test]
+    fn plugin_values_are_read_from_the_plugin_table() {
+        let settings = Settings::parse(
+            "[plugins.calculator]\ncurrency = \"EUR\"\nrates = false\n\n[plugins.web-search]\nkeyword = \"w\"\nfirst = \"github\"\n",
+        )
+        .unwrap();
+        let web = settings.plugin("web-search");
+        assert_eq!(web.keyword.as_deref(), Some("w"));
+        assert_eq!(web.values["first"], "github");
+        assert_eq!(settings.plugin("calculator").values["currency"], "EUR");
+    }
+
+    #[test]
+    fn rates_download_unless_turned_off() {
+        assert!(Settings::default().downloads_rates());
+        let off = Settings::parse("[plugins.calculator]\nrates = false\n").unwrap();
+        assert!(!off.downloads_rates());
+        let calculator_off = Settings::parse("[plugins.calculator]\nenabled = false\n").unwrap();
+        assert!(!calculator_off.downloads_rates());
+    }
+
+    #[test]
     fn adding_a_marketplace_keeps_the_file() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("settings.toml");

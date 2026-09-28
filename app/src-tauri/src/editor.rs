@@ -97,20 +97,52 @@ pub fn settings_save(
     launcher: State<'_, Launcher>,
     settings: Settings,
 ) -> Result<(), String> {
-    for plugin in plugins(&launcher) {
-        let values = settings.plugin(&plugin.id).values;
-        let (_, problems) = sonar_plugins::resolve(&plugin.settings, &values);
-        if let Some(problem) = problems.first() {
-            return Err(format!("{}: {problem}", plugin.name));
-        }
-    }
+    check_values(&plugins(&launcher), &settings)?;
     settings::save(&launcher.paths().settings, &settings)?;
     crate::reload(&app);
     let _ = app.emit("sonar://view", ());
     Ok(())
 }
 
+/// Refuses values that don't fit what their plugin declares, naming the first one.
+fn check_values(plugins: &[PluginInfo], settings: &Settings) -> Result<(), String> {
+    for plugin in plugins {
+        let values = settings.plugin(&plugin.id).values;
+        let (_, problems) = sonar_plugins::resolve(&plugin.settings, &values);
+        if let Some(problem) = problems.first() {
+            return Err(format!("{}: {problem}", plugin.name));
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn settings_open_file(app: AppHandle, launcher: State<'_, Launcher>) -> Result<(), String> {
     host::open(&app, &launcher.paths().settings.to_string_lossy())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saving_refuses_values_the_plugin_doesnt_take() {
+        let calculator = PluginInfo {
+            id: sonar_plugins::calculator::ID.into(),
+            name: "Calculator".into(),
+            description: None,
+            keyword: None,
+            image: None,
+            icon: "calculator",
+            settings: sonar_plugins::calculator::settings(),
+        };
+        let plugins = [calculator];
+        let good = Settings::parse("[plugins.calculator]\ncurrency = \"JPY\"\n").unwrap();
+        assert_eq!(check_values(&plugins, &good), Ok(()));
+        let bad = Settings::parse("[plugins.calculator]\nrates = \"yes\"\n").unwrap();
+        assert_eq!(
+            check_values(&plugins, &bad),
+            Err("Calculator: `rates` must be true or false".into())
+        );
+    }
 }

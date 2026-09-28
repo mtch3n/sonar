@@ -42,13 +42,9 @@ impl RateKeeper {
             let mut failed_at: Option<Instant> = None;
             loop {
                 let now = jiff::Timestamp::now().as_second();
-                let due = rates
-                    .read()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .as_ref()
-                    .is_none_or(|current| current.is_due(now));
-                let resting = failed_at.is_some_and(|at| at.elapsed() < RETRY_AFTER);
-                if due && !resting && enabled() {
+                let current = rates.read().unwrap_or_else(|p| p.into_inner()).clone();
+                let since_failure = failed_at.map(|at| at.elapsed());
+                if should_download(current.as_deref(), now, since_failure) && enabled() {
                     match Rates::download() {
                         Ok(fresh) => {
                             if let Err(err) = fresh.save(&path) {
@@ -76,5 +72,40 @@ impl RateKeeper {
     /// Looks whether new rates are due now, rather than at the next hourly look.
     pub fn check(&self) {
         let _ = self.wake.send(());
+    }
+}
+
+/// Whether to download rates: when there are none or new ones are due, unless a
+/// download failed a moment ago.
+fn should_download(current: Option<&Rates>, now: i64, since_failure: Option<Duration>) -> bool {
+    let due = current.is_none_or(|rates| rates.is_due(now));
+    let resting = since_failure.is_some_and(|elapsed| elapsed < RETRY_AFTER);
+    due && !resting
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn downloads_when_due_but_not_right_after_a_failure() {
+        let rates = Rates {
+            published: 100,
+            next: 200,
+            per_usd: Default::default(),
+        };
+        assert!(should_download(None, 0, None), "nothing yet");
+        assert!(!should_download(Some(&rates), 199, None), "still current");
+        assert!(should_download(Some(&rates), 200, None), "due");
+        let moment = Some(Duration::from_secs(60));
+        assert!(
+            !should_download(Some(&rates), 200, moment),
+            "failed a minute ago"
+        );
+        assert!(!should_download(None, 0, moment));
+        assert!(
+            should_download(Some(&rates), 200, Some(RETRY_AFTER)),
+            "rested long enough"
+        );
     }
 }

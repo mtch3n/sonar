@@ -3,6 +3,7 @@ import { ChevronRight, TriangleAlert, X } from "lucide-react";
 import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { Glyph } from "./icons";
 import { applyLook } from "./look";
+import { hint, withValue } from "./pluginSettings";
 import type { Editor, PluginSettings, Setting, SettingValue, Settings as Values } from "./types";
 import "./styles.css";
 import "./settings.css";
@@ -41,12 +42,8 @@ export default function Settings() {
   const own = (id: string): PluginSettings => draft.plugins[id] ?? { enabled: true, keyword: null };
   const plugin = (id: string, patch: { enabled?: boolean; keyword?: string | null }) =>
     change({ ...draft, plugins: { ...draft.plugins, [id]: { ...own(id), ...patch } } });
-  // A value back at its default is left out, so settings.toml only holds what was changed.
-  const setValue = (id: string, setting: Setting, value: SettingValue) => {
-    const { [setting.key]: _, ...rest } = own(id);
-    const next = value === setting.default ? rest : { ...rest, [setting.key]: value };
-    change({ ...draft, plugins: { ...draft.plugins, [id]: next as PluginSettings } });
-  };
+  const setValue = (id: string, setting: Setting, value: SettingValue) =>
+    change({ ...draft, plugins: { ...draft.plugins, [id]: withValue(own(id), setting, value) } });
   const toggleExpanded = (id: string) =>
     setExpanded(expanded.includes(id) ? expanded.filter((open) => open !== id) : [...expanded, id]);
 
@@ -315,18 +312,6 @@ function SettingField({
         </select>
       );
   }
-}
-
-/** A setting's description, and for numbers the range they may take. */
-function hint(setting: Setting): string | undefined {
-  const parts = [setting.description];
-  if (setting.type === "number") {
-    const { min, max } = setting;
-    if (min !== null && max !== null) parts.push(`${min} to ${max}`);
-    else if (min !== null) parts.push(`${min} or more`);
-    else if (max !== null) parts.push(`${max} or less`);
-  }
-  return parts.filter(Boolean).join(" · ") || undefined;
 }
 
 function NumberField({
