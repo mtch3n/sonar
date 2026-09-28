@@ -80,9 +80,12 @@ export default function App() {
   const fill = useCallback((value: string) => {
     setQuery(value);
     setNotice(null);
+    // To the end of what the box holds by then: keys typed in the meantime come
+    // after the filled text, not before.
     requestAnimationFrame(() => {
-      input.current?.focus();
-      input.current?.setSelectionRange(value.length, value.length);
+      const box = input.current;
+      box?.focus();
+      box?.setSelectionRange(box.value.length, box.value.length);
     });
   }, []);
 

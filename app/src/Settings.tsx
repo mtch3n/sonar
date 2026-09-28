@@ -255,6 +255,17 @@ export default function Settings() {
           </Group>
 
           <Group
+            title="Labels"
+            note="Files get the label whose meaning they're closest to, the ones like files you tagged with it, and those a vision model picks. Search them with tag:receipt."
+          >
+            <Labels
+              labels={draft.labels ?? editor.defaultLabels}
+              own={draft.labels !== null}
+              onChange={(labels) => change({ ...draft, labels })}
+            />
+          </Group>
+
+          <Group
             title="Providers"
             note="Services with an OpenAI-compatible API, for models that don't run inside Sonar. Keys are kept in the system keychain, never in settings.toml."
           >
@@ -371,6 +382,92 @@ export default function Settings() {
         </Button>
       </footer>
     </div>
+  );
+}
+
+/** Labels and what each means; `null` goes back to Sonar's own. */
+function Labels({
+  labels,
+  own,
+  onChange,
+}: {
+  labels: Record<string, string>;
+  own: boolean;
+  onChange: (labels: Record<string, string> | null) => void;
+}) {
+  const [name, setName] = useState("");
+  const [meaning, setMeaning] = useState("");
+  const tag = name.trim().toLowerCase().replace(/\s+/g, "-").replace(/^#/, "");
+  const add = () => {
+    if (!tag || !meaning.trim()) return;
+    onChange({ ...labels, [tag]: meaning.trim() });
+    setName("");
+    setMeaning("");
+  };
+  return (
+    <>
+      {Object.entries(labels).map(([label, what]) => (
+        <Item key={label} size="sm" className="flex-nowrap">
+          <ItemContent className="min-w-0">
+            <ItemTitle className="select-text">#{label}</ItemTitle>
+            <Input
+              className="mt-1"
+              value={what}
+              onChange={(e) => onChange({ ...labels, [label]: e.target.value })}
+              aria-label={`What ${label} means`}
+            />
+          </ItemContent>
+          <ItemActions>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Remove the label ${label}`}
+              onClick={() => {
+                const rest = { ...labels };
+                delete rest[label];
+                onChange(rest);
+              }}
+            >
+              <X />
+            </Button>
+          </ItemActions>
+        </Item>
+      ))}
+      <Item size="sm">
+        <ItemContent className="flex-row gap-2">
+          <Input
+            className="w-36"
+            value={name}
+            placeholder="label"
+            onChange={(e) => setName(e.target.value)}
+            aria-label="Label to add"
+            spellCheck={false}
+          />
+          <Input
+            value={meaning}
+            placeholder="What it means, in a sentence"
+            onChange={(e) => setMeaning(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && add()}
+            aria-label="What the label to add means"
+          />
+        </ItemContent>
+        <ItemActions>
+          <Button variant="outline" onClick={add} disabled={!tag || !meaning.trim()}>
+            Add
+          </Button>
+        </ItemActions>
+      </Item>
+      {own && (
+        <Item size="sm">
+          <ItemContent />
+          <ItemActions>
+            <Button variant="link" className="text-muted-foreground" onClick={() => onChange(null)}>
+              Use Sonar's labels
+            </Button>
+          </ItemActions>
+        </Item>
+      )}
+    </>
   );
 }
 

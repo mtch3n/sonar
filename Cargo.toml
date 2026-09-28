@@ -48,6 +48,7 @@ shell-words = "1.1.1"
 sys-locale = "0.3.2"
 sysinfo = { version = "0.39.6", default-features = false, features = ["system", "user"] }
 tar = "0.4.46"
+xattr = "1.6.1"
 tauri-build = "2.6.3"
 tauri-plugin-clipboard-manager = "2.3.3"
 tauri-plugin-global-shortcut = "2.3.2"

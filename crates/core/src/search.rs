@@ -6,7 +6,7 @@ use rusqlite::{Connection, params_from_iter, types::Value};
 use crate::{
     DEFAULT_LIMIT, Embedder, Kind, Level, Likeness, Query, Term, Within, dupes,
     meaning::{Source, Store},
-    text,
+    tags, text,
     words::words,
 };
 
@@ -21,6 +21,7 @@ pub struct Hit {
     pub mtime: i64,
     /// The line that matched, when the file matched by its text and not its name.
     pub line: Option<String>,
+    pub tags: Vec<String>,
 }
 
 /// The columns a word is matched against.
@@ -49,6 +50,16 @@ pub(crate) fn search(
     now: i64,
     meaning: Option<Meaning>,
 ) -> Result<Vec<Hit>> {
+    let mut hits = find(conn, q, now, meaning)?;
+    let mut id = conn.prepare_cached("SELECT id FROM files WHERE path = ?1")?;
+    for hit in &mut hits {
+        let file: i64 = id.query_row([&hit.path], |r| r.get(0))?;
+        hit.tags = tags::of_file(conn, file)?;
+    }
+    Ok(hits)
+}
+
+fn find(conn: &Connection, q: &Query, now: i64, meaning: Option<Meaning>) -> Result<Vec<Hit>> {
     let limit = q.limit.unwrap_or(DEFAULT_LIMIT);
     let (filters, filter_args) = filters(q);
     if let Some(path) = &q.similar {
@@ -185,6 +196,7 @@ pub(crate) fn search(
                 size: size.map(|s| s as u64),
                 mtime: r.get(4)?,
                 line: None,
+                tags: Vec::new(),
             };
             Ok((hit, r.get::<_, Option<String>>(5)?))
         })?;
@@ -353,6 +365,19 @@ pub(crate) fn filters(q: &Query) -> (String, Vec<Value>) {
             })
             .collect();
         sql.push_str(&format!(" AND ({})", conditions.join(" OR ")));
+    }
+    for any in &q.tags {
+        let conditions: Vec<String> = any
+            .iter()
+            .map(|tag| {
+                let (condition, tag_args) = tags::condition(tag);
+                args.extend(tag_args.into_iter().map(Value::Text));
+                condition.trim_start_matches(" AND ").to_owned()
+            })
+            .collect();
+        if !conditions.is_empty() {
+            sql.push_str(&format!(" AND ({})", conditions.join(" OR ")));
+        }
     }
     let bounds = [
         (" AND f.mtime >= ?", q.modified_after),

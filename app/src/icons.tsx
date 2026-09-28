@@ -32,6 +32,7 @@ import {
   Sheet,
   Smile,
   SquareTerminal,
+  Tag,
   Trash2,
 } from "lucide-react";
 
@@ -73,6 +74,7 @@ const GLYPHS: Record<string, LucideIcon> = {
   emoji: Smile,
   plugin: Puzzle,
   github: PackagePlus,
+  tag: Tag,
 };
 
 export function Glyph({ icon, image }: { icon: string; image: string | null }) {

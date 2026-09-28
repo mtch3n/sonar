@@ -76,6 +76,8 @@ export type Settings = {
   meaning: { enabled: boolean; model: string };
   updates: { check: boolean };
   providers: Record<string, { url: string; key_env: string | null }>;
+  /** null uses Sonar's own labels. */
+  labels: Record<string, string> | null;
   plugins: Record<string, PluginSettings>;
 };
 
@@ -108,6 +110,8 @@ export type Editor = {
   kinds: { kind: string; default: string; levels: string[] }[];
   /** The models that can search by meaning. */
   models: { id: string; name: string; description: string; downloadMb: number; downloaded: boolean }[];
+  /** The labels files get while the settings have none of their own. */
+  defaultLabels: Record<string, string>;
   /** Services with an OpenAI-compatible API. */
   providers: {
     id: string;

@@ -11,7 +11,7 @@ use std::{
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::{Kind, Level, hash, media, words::words};
+use crate::{Kind, Level, hash, media, tags, words::words};
 
 /// A file for a processor to look at.
 pub struct Job<'a> {
@@ -230,6 +230,7 @@ fn video(
 /// Gathers what every processor said about content `hash` into the text searched
 /// with it, and indexes that text again for the files that have it.
 pub(crate) fn refresh_text(conn: &Connection, hash: &[u8], root: &Path) -> Result<()> {
+    tags::put_plugin_tags(conn, hash)?;
     let parts: Vec<(Option<String>, Option<String>)> = conn
         .prepare(
             "SELECT text, tags FROM cache.outputs

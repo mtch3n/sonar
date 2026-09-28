@@ -39,6 +39,14 @@ enum Command {
         #[arg(help = "Filters, like `kind:video` or `in:~/Pictures`")]
         filters: Vec<String>,
     },
+    #[command(
+        about = "List a file's tags, or add and take off tags: sonar tag scan.pdf +receipt -draft"
+    )]
+    Tag {
+        path: std::path::PathBuf,
+        #[arg(allow_hyphen_values = true, help = "+tag to add, -tag to take off")]
+        changes: Vec<String>,
+    },
     #[command(about = "Search the index", visible_alias = "s", after_help = SYNTAX)]
     Search {
         #[arg(help = "Words and filters, e.g. `invoice kind:pdf modified:<30d`")]
@@ -59,6 +67,9 @@ Filters:
   after:2026-09-01    changed on or after a date; before: for earlier
   size:>10mb          bigger than; size:<100kb for smaller
   limit:50            number of results (default 20)
+  tag:receipt         tagged receipt; tag:a,b for either; label: is the same
+  dupes:              copies and look-alikes; dupes:same, dupes:looks<12, dupes:names
+  similar:~/a.jpg     files that look like this one
   -draft              leave out matches for a word
   '\"tax return\"'      exact words (keep the double quotes from the shell)
 
@@ -100,6 +111,25 @@ fn main() -> Result<()> {
                 names: all || names,
             };
             run_dupes(&index, &paths, wanted, &filters.join(" "))
+        }
+        Command::Tag { path, changes } => {
+            let (_, mut index) = open()?;
+            let path = std::path::absolute(&path)?;
+            for change in &changes {
+                match (change.strip_prefix('+'), change.strip_prefix('-')) {
+                    (Some(tag), _) => index.tag(&path, tag, true)?,
+                    (_, Some(tag)) => index.tag(&path, tag, false)?,
+                    _ => bail!("write `+{change}` to add a tag, or `-{change}` to take it off"),
+                }
+            }
+            let tags = index.tags(&path)?;
+            if tags.is_empty() {
+                println!("No tags");
+            } else {
+                let tags: Vec<String> = tags.iter().map(|t| format!("#{t}")).collect();
+                println!("{}", tags.join(" "));
+            }
+            Ok(())
         }
         Command::Search { query } => {
             let (paths, mut index) = open()?;
@@ -166,6 +196,20 @@ fn run_index(index: &mut Index, paths: &Paths) -> Result<()> {
     if process(index, paths, &settings)? && settings.meaning.enabled {
         // What processors said is searched by meaning too.
         embed(index, paths, &settings)?;
+    }
+    if settings.meaning.enabled && settings.meaning_ready(&paths.models) {
+        let load = Load {
+            download: false,
+            threads: 2,
+        };
+        let mut embedder = settings
+            .meaning_model(&paths.models, load)
+            .map_err(anyhow::Error::msg)?;
+        let stats = index.learn_labels(embedder.as_mut(), &settings.labels())?;
+        println!(
+            "Labeled {} files by meaning and {} like the ones you tagged",
+            stats.by_meaning, stats.by_examples
+        );
     }
     Ok(())
 }
@@ -346,6 +390,10 @@ fn format_hit(hit: &Hit, home: &Path, now: i64, color: bool) -> String {
     let mut details = vec![age(now - hit.mtime)];
     if let Some(size) = hit.size {
         details.push(human_size(size));
+    }
+    if !hit.tags.is_empty() {
+        let tags: Vec<String> = hit.tags.iter().map(|t| format!("#{t}")).collect();
+        details.push(tags.join(" "));
     }
     let mut out = format!(
         "{dim}{:<8}{reset}{bold}{}{reset}  {dim}{folder}  ·  {}{reset}",

@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, Statement, Transaction, params};
 use crate::{
     Kind, Level, Levels, Rules,
     hash::{self, Hash},
-    meaning, text,
+    meaning, tags, text,
     words::words,
 };
 
@@ -196,6 +196,8 @@ pub(crate) fn forget(conn: &mut Connection, path: &Path) -> Result<u64> {
         "DELETE FROM cache.contents WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
         "DELETE FROM cache.outputs WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
         "DELETE FROM cache.extras WHERE hash IN (SELECT hash FROM main.files WHERE {chosen})",
+        "DELETE FROM cache.tags WHERE source NOT IN ('manual', 'removed')
+             AND hash IN (SELECT hash FROM main.files WHERE {chosen})",
         "DELETE FROM cache.names WHERE name IN (SELECT name FROM main.files WHERE {chosen})",
     ] {
         tx.execute(
@@ -250,6 +252,12 @@ fn forget_unused(tx: &Transaction) -> Result<()> {
     )?;
     tx.execute(
         "DELETE FROM cache.extras WHERE hash NOT IN (SELECT hash FROM cache.outputs)",
+        [],
+    )?;
+    // Tags given by hand stay with their content, even while no file has it.
+    tx.execute(
+        "DELETE FROM cache.tags WHERE source NOT IN ('manual', 'removed')
+             AND hash NOT IN (SELECT hash FROM main.files WHERE hash IS NOT NULL)",
         [],
     )?;
     meaning::forget_unused(tx)?;
@@ -315,6 +323,7 @@ struct Writer<'t> {
     cached_text: Statement<'t>,
     full_text: Statement<'t>,
     cache_text: Statement<'t>,
+    tx: &'t Transaction<'t>,
     scan_id: i64,
     /// Whether every file's text is read again, because the text limit changed.
     reread: bool,
@@ -361,6 +370,7 @@ impl<'t> Writer<'t> {
             cache_text: tx.prepare(
                 "INSERT OR REPLACE INTO cache.contents (hash, text_limit, text) VALUES (?1, ?2, ?3)",
             )?,
+            tx,
             scan_id,
             reread,
             text_limit,
@@ -457,6 +467,10 @@ impl<'t> Writer<'t> {
         self.fts_delete.execute([id])?;
         self.fts_insert
             .execute(params![id, name_words, row.dirs, body])?;
+        let path = Path::new(row.path);
+        let mut found = tags::rules(path, row.name, row.kind);
+        found.extend(tags::own(path));
+        tags::put_file_tags(self.tx, id, &found)?;
         Ok(Some(id))
     }
 

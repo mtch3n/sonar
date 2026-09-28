@@ -313,6 +313,7 @@ fn group(likeness: Likeness, mut files: Vec<File>) -> Group {
                 size: Some(f.size),
                 mtime: f.mtime,
                 line: None,
+                tags: Vec::new(),
             })
             .collect(),
     }
@@ -409,6 +410,7 @@ fn to_hit(f: File) -> Hit {
         size: Some(f.size),
         mtime: f.mtime,
         line: None,
+        tags: Vec::new(),
     }
 }
 

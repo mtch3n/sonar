@@ -32,6 +32,8 @@ use crate::{bundled, host, window};
 
 /// Typing this and a space lists installed plugins and the marketplaces' plugins.
 const PLUGINS_KEYWORD: &str = "plugins";
+/// Starts the view of a file's tags: `tags "<path>" <tag to add>`.
+const TAGS_KEYWORD: &str = "tags";
 /// How long the first batch of results waits for plugins without a keyword.
 const FIRST_ANSWERS: Duration = Duration::from_millis(50);
 /// How long an external plugin may take to answer before it is restarted.
@@ -113,6 +115,14 @@ enum Command {
     Reprocess(String),
     /// Search for files like this one.
     Similar(String),
+    /// Show a file's tags, to add and take them off.
+    Tags(String),
+    /// Tag a file, or take the tag off.
+    Tag {
+        path: String,
+        tag: String,
+        on: bool,
+    },
 }
 
 #[derive(Clone, Serialize)]
@@ -317,6 +327,12 @@ impl Launcher {
         if let Some(rest) = strip_keyword(query, PLUGINS_KEYWORD) {
             return self.plugins_view(generation, &session, rest, send).await;
         }
+        if let Some(rest) = strip_keyword(query, TAGS_KEYWORD)
+            && let Some((path, typed)) = quoted_path(rest, &self.paths.home)
+        {
+            send(vec![self.tags_view(generation, &path, typed)]);
+            return Ok(());
+        }
         for plugin in &session.plugins {
             if let Some(keyword) = &plugin.keyword
                 && let Some(rest) = strip_keyword(query, keyword)
@@ -416,6 +432,84 @@ impl Launcher {
             }
             Err(err) => failed("files", "Files", 20, format!("{err:#}")),
         }
+    }
+
+    /// The tags of the file at `path`, each taken off with Enter, and `typed` or
+    /// tags it starts, added with Enter.
+    fn tags_view(&self, generation: u64, path: &str, typed: &str) -> Section {
+        let index = lock(&self.index);
+        let has = match index.tags(Path::new(path)) {
+            Ok(tags) => tags,
+            Err(err) => return failed("tags", "Tags", 0, format!("{err:#}")),
+        };
+        let typed = sonar_core::clean_tag(typed);
+        let mut known: Vec<String> = index
+            .manual_tags()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(tag, _)| tag)
+            .chain(read(&self.settings).labels().into_keys())
+            .collect();
+        drop(index);
+        known.dedup();
+        let tag = |tag: &str, on: bool| Command::Tag {
+            path: path.to_owned(),
+            tag: tag.to_owned(),
+            on,
+        };
+        let row = |title: String, subtitle: Option<&str>, action: Command| Draft {
+            title,
+            subtitle: subtitle.map(str::to_owned),
+            meta: None,
+            icon: "tag",
+            image: None,
+            action,
+            alt: None,
+            label: None,
+            alt_label: None,
+            more: Vec::new(),
+        };
+        let mut drafts = Vec::new();
+        if !typed.is_empty() && !has.contains(&typed) {
+            drafts.push(row(
+                format!("Tag it #{typed}"),
+                Some("It stays with the file's content, wherever the file goes"),
+                tag(&typed, true),
+            ));
+        }
+        let suggestions = known.iter().filter(|k| {
+            !typed.is_empty() && k.starts_with(&typed) && **k != typed && !has.contains(k)
+        });
+        for suggestion in suggestions.take(5) {
+            drafts.push(row(
+                format!("Tag it #{suggestion}"),
+                None,
+                tag(suggestion, true),
+            ));
+        }
+        for on in has
+            .iter()
+            .filter(|t| typed.is_empty() || t.contains(&typed))
+        {
+            drafts.push(row(
+                format!("#{on}"),
+                Some("Enter takes it off, and it isn't put back"),
+                tag(on, false),
+            ));
+        }
+        let name = Path::new(path)
+            .file_name()
+            .map_or(path.to_owned(), |n| n.to_string_lossy().into_owned());
+        let empty = drafts
+            .is_empty()
+            .then(|| "No tags yet. Type one to add it.".to_owned());
+        section(
+            "tags",
+            &format!("Tags of {name}"),
+            0,
+            self.rows(generation, drafts),
+            empty,
+        )
     }
 
     fn plugin_section(
@@ -619,16 +713,27 @@ impl Launcher {
                 )?;
                 Ok(close(app))
             }
-            Command::Similar(path) => {
-                let home = self.paths.home.to_string_lossy();
-                let path = match path.strip_prefix(home.as_ref()) {
-                    Some(rest) => format!("~{rest}"),
-                    None => path,
-                };
+            Command::Tags(path) => Ok(Outcome::Fill {
+                text: format!(
+                    "{TAGS_KEYWORD} \"{}\" ",
+                    home_relative(&path, &self.paths.home)
+                ),
+            }),
+            Command::Tag { path, tag, on } => {
+                lock(&self.index)
+                    .tag(Path::new(&path), &tag, on)
+                    .map_err(|err| format!("{err:#}"))?;
+                // The view shows the tags as they are now.
                 Ok(Outcome::Fill {
-                    text: format!("similar:\"{path}\""),
+                    text: format!(
+                        "{TAGS_KEYWORD} \"{}\" ",
+                        home_relative(&path, &self.paths.home)
+                    ),
                 })
             }
+            Command::Similar(path) => Ok(Outcome::Fill {
+                text: format!("similar:\"{}\"", home_relative(&path, &self.paths.home)),
+            }),
             Command::Reprocess(path) => {
                 let files = lock(&self.index)
                     .forget(Path::new(&path))
@@ -888,6 +993,9 @@ impl Command {
             Command::Terminal(_) => "Open in terminal",
             Command::Reprocess(_) => "Read again",
             Command::Similar(_) => "Find similar",
+            Command::Tags(_) => "Tags…",
+            Command::Tag { on: true, .. } => "Tag",
+            Command::Tag { on: false, .. } => "Take off",
         }
     }
 }
@@ -1026,6 +1134,27 @@ fn picture(dir: &Path, image: &str) -> Option<String> {
     url
 }
 
+/// `path` with `~` for the home folder.
+fn home_relative(path: &str, home: &Path) -> String {
+    let home = home.to_string_lossy();
+    match path.strip_prefix(home.as_ref()) {
+        Some(rest) => format!("~{rest}"),
+        None => path.to_owned(),
+    }
+}
+
+/// A path in double quotes at the start of `text`, with `~` for the home folder,
+/// and what follows it.
+fn quoted_path<'a>(text: &'a str, home: &Path) -> Option<(String, &'a str)> {
+    let rest = text.strip_prefix('"')?;
+    let (path, after) = rest.split_once('"')?;
+    let path = match path.strip_prefix('~') {
+        Some(rest) => format!("{}{rest}", home.display()),
+        None => path.to_owned(),
+    };
+    Some((path, after.trim_start()))
+}
+
 fn installed_draft(manifest: &Manifest, keyword: Option<&str>, enabled: bool) -> Draft {
     let source = store::source_of(&manifest.dir);
     let meta = match (keyword, enabled) {
@@ -1083,11 +1212,16 @@ fn file_draft(hit: Hit, home: &Path, now: i64, editor: bool) -> Draft {
         None => age(now, hit.mtime),
     };
     let open = |action| Command::Plugin { action, dir: None };
-    // A file found by its text shows the line that matched, then where it is.
-    let subtitle = match hit.line {
+    // A file found by its text shows the line that matched, then where it is, then
+    // its tags.
+    let mut subtitle = match hit.line {
         Some(line) => format!("{line} · {folder}"),
         None => folder,
     };
+    if !hit.tags.is_empty() {
+        let tags: Vec<String> = hit.tags.iter().map(|t| format!("#{t}")).collect();
+        subtitle = format!("{subtitle} · {}", tags.join(" "));
+    }
     Draft {
         title: hit.name,
         subtitle: Some(subtitle),
@@ -1111,6 +1245,7 @@ fn file_draft(hit: Hit, home: &Path, now: i64, editor: bool) -> Draft {
             vec![Command::Reprocess(hit.path)]
         } else {
             vec![
+                Command::Tags(hit.path.clone()),
                 Command::Similar(hit.path.clone()),
                 Command::Reprocess(hit.path),
             ]
@@ -1313,14 +1448,15 @@ mod tests {
             size: Some(10),
             mtime: 0,
             line: line.map(str::to_owned),
+            tags: vec!["receipt".into()],
         };
         let folder = format!("~{MAIN_SEPARATOR}scripts");
         let by_name = file_draft(hit(None), home, 0, false);
-        assert_eq!(by_name.subtitle, Some(folder.clone()));
+        assert_eq!(by_name.subtitle, Some(format!("{folder} · #receipt")));
         let by_text = file_draft(hit(Some("rsync -av ~/Pictures nas:")), home, 0, false);
         assert_eq!(
             by_text.subtitle,
-            Some(format!("rsync -av ~/Pictures nas: · {folder}"))
+            Some(format!("rsync -av ~/Pictures nas: · {folder} · #receipt"))
         );
     }
 
@@ -1334,6 +1470,7 @@ mod tests {
             size: None,
             mtime: 0,
             line: None,
+            tags: Vec::new(),
         };
         let project = file_draft(hit("sonar", Kind::Project), home, 0, true);
         assert!(matches!(&project.action, Command::Edit(path) if path == "/home/me/sonar"));

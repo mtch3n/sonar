@@ -116,7 +116,7 @@ Sonar sends the next query only after you've answered the last one, and skips qu
 |---|---|---|
 | `title` | yes | the main line |
 | `subtitle` | no | a second, smaller line |
-| `icon` | no | a glyph Sonar draws: `bookmark`, `history`, `window`, `process`, `port`, `service`, `power`, `lock`, `sleep`, `restart`, `logout`, `trash`, `terminal`, `clock`, `globe`, `clipboard`, `emoji`, `calculator`, or a file kind like `folder`, `app` or `image`. Without one, the plugin's own icon is shown |
+| `icon` | no | a glyph Sonar draws: `bookmark`, `history`, `window`, `process`, `port`, `service`, `power`, `lock`, `sleep`, `restart`, `logout`, `trash`, `terminal`, `clock`, `globe`, `clipboard`, `emoji`, `calculator`, `tag`, or a file kind like `folder`, `app` or `image`. Without one, the plugin's own icon is shown |
 | `image` | no | a picture instead, like an app's icon: the path of an SVG up to 256 KB, or a PNG, JPEG or WebP up to 8 MB that Sonar scales down to fit, relative to the plugin folder or absolute, or a `data:image/` URL. Set `icon` too, for when the picture can't be read |
 | `action` | yes | what Enter does |
 | `alt` | no | what Ctrl + Enter (⌘ + Enter on macOS) does |

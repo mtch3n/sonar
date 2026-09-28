@@ -24,6 +24,9 @@ pub struct Settings {
     /// `[providers.<id>]`: services with an OpenAI-compatible API, added to or
     /// changing the ones Sonar knows.
     pub providers: BTreeMap<String, ProviderSettings>,
+    /// `[labels]`: labels files can get, each with what it means. `None` uses
+    /// [`DEFAULT_LABELS`].
+    pub labels: Option<BTreeMap<String, String>>,
     pub plugins: BTreeMap<String, PluginSettings>,
 }
 
@@ -35,6 +38,49 @@ pub struct ProviderSettings {
     /// An environment variable holding its API key, read before the keychain.
     pub key_env: Option<String>,
 }
+
+/// The labels files get unless the settings have their own: a name, and what it
+/// means, which files are compared against by meaning and vision models read.
+pub const DEFAULT_LABELS: [(&str, &str); 11] = [
+    (
+        "receipt",
+        "a receipt: proof of purchase from a shop or restaurant, listing items, prices and a total paid",
+    ),
+    (
+        "invoice",
+        "an invoice or bill asking for payment, with an amount due and a due date",
+    ),
+    (
+        "bank-statement",
+        "a bank or credit card statement listing transactions and balances",
+    ),
+    (
+        "contract",
+        "a contract, lease or agreement between parties, with terms and signatures",
+    ),
+    (
+        "payslip",
+        "a payslip or pay stub with salary, deductions and net pay",
+    ),
+    ("tax", "a tax return, tax form or tax assessment"),
+    (
+        "id-document",
+        "an identity document like a passport, a national ID card or a residence permit, with a photo, a date of birth and a document number",
+    ),
+    (
+        "ticket",
+        "a ticket or booking for a flight, train, hotel or event",
+    ),
+    (
+        "medical",
+        "a medical record, prescription, test result or doctor's note",
+    ),
+    (
+        "manual",
+        "a user manual, instructions or a guide for a product",
+    ),
+    ("screenshot", "a screenshot of a computer or phone screen"),
+];
 
 /// Providers Sonar knows: id, API, and the variable their key is usually in.
 pub const KNOWN_PROVIDERS: [(&str, &str, Option<&str>); 4] = [
@@ -215,6 +261,7 @@ impl Default for Settings {
             meaning: Meaning::default(),
             updates: Updates::default(),
             providers: BTreeMap::new(),
+            labels: None,
             plugins: BTreeMap::new(),
         }
     }
@@ -314,6 +361,17 @@ impl Settings {
         self.editor()?;
         self.terminal()?;
         self.index.check()?;
+        for (name, meaning) in self.labels.iter().flatten() {
+            if sonar_core::clean_tag(name) != *name {
+                return Err(format!(
+                    "labels: `{name}` should be `{}`: lowercase, with dashes for spaces",
+                    sonar_core::clean_tag(name)
+                ));
+            }
+            if meaning.trim().is_empty() {
+                return Err(format!("labels.{name} needs a line saying what it means"));
+            }
+        }
         for (id, provider) in &self.providers {
             if !provider.url.is_empty()
                 && !provider.url.starts_with("http://")
@@ -353,6 +411,17 @@ impl Settings {
             }
         }
         Ok(())
+    }
+
+    /// The labels files can get, with what each means.
+    pub fn labels(&self) -> BTreeMap<String, String> {
+        match &self.labels {
+            Some(labels) => labels.clone(),
+            None => DEFAULT_LABELS
+                .iter()
+                .map(|(name, meaning)| ((*name).to_owned(), (*meaning).to_owned()))
+                .collect(),
+        }
     }
 
     /// A provider's settings: its own table, or what Sonar knows of it.
@@ -474,7 +543,7 @@ impl Settings {
                     data,
                     values,
                     model,
-                    BTreeMap::new(),
+                    self.labels(),
                     prepare,
                 )
             })
@@ -656,6 +725,18 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
         doc.remove("providers");
     } else {
         doc["providers"] = Item::Table(providers);
+    }
+    match &settings.labels {
+        Some(labels) => {
+            let mut table = Table::new();
+            for (name, meaning) in labels {
+                table[name.as_str()] = value(meaning.as_str());
+            }
+            doc["labels"] = Item::Table(table);
+        }
+        None => {
+            doc.remove("labels");
+        }
     }
 
     // Only plugins that differ from their defaults get a table.
@@ -883,6 +964,15 @@ model = "multilingual"  # "multilingual", "english", "bge-small-en", "multilingu
 
 [updates]
 check = true        # look for new versions of Sonar on GitHub
+
+# Labels files can get, each with a line saying what it means, which files are
+# compared against by meaning and vision models read. Without this table, Sonar's
+# own are used: receipt, invoice, bank-statement, contract, payslip, tax,
+# id-document, ticket, medical, manual and screenshot.
+#
+# [labels]
+# receipt = "proof of purchase listing items, prices and a total paid"
+# lease = "a rental agreement for a flat or a house"
 
 # Services with an OpenAI-compatible API. openai, openrouter, ollama and lmstudio
 # are known already; API keys go in Settings, which keeps them in the keychain,
