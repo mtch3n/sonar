@@ -12,6 +12,7 @@ pub mod processes;
 mod setting;
 pub mod store;
 pub mod system;
+pub mod windows;
 
 use std::io::{BufRead, Write};
 

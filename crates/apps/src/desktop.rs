@@ -64,10 +64,35 @@ fn application_dirs() -> Vec<PathBuf> {
         .collect()
 }
 
+/// The icon file of the app whose entry is `id`, like `org.gnome.Ptyxis.desktop`,
+/// from the icon theme's usual folders.
+pub fn icon(id: &str) -> Option<PathBuf> {
+    let text = application_dirs()
+        .iter()
+        .find_map(|dir| fs::read_to_string(dir.join(id)).ok())?;
+    let name = Entry::parse(&text)?.icon?;
+    if Path::new(&name).is_absolute() {
+        return Path::new(&name).is_file().then(|| PathBuf::from(name));
+    }
+    let data: Vec<PathBuf> = application_dirs()
+        .iter()
+        .filter_map(|apps| apps.parent().map(Path::to_path_buf))
+        .collect();
+    const SIZES: [&str; 7] = [
+        "scalable", "512x512", "256x256", "128x128", "96x96", "64x64", "48x48",
+    ];
+    data.iter()
+        .flat_map(|dir| SIZES.map(|size| dir.join("icons/hicolor").join(size).join("apps")))
+        .chain(data.iter().map(|dir| dir.join("pixmaps")))
+        .flat_map(|dir| ["svg", "png"].map(|ext| dir.join(format!("{name}.{ext}"))))
+        .find(|path| path.is_file())
+}
+
 #[derive(Debug, Default, PartialEq)]
 struct Entry {
     name: String,
     exec: String,
+    icon: Option<String>,
     try_exec: Option<String>,
     categories: Vec<String>,
     is_app: bool,
@@ -92,6 +117,7 @@ impl Entry {
             match key.trim() {
                 "Name" => entry.name = value.to_owned(),
                 "Exec" => entry.exec = value.to_owned(),
+                "Icon" => entry.icon = Some(value.to_owned()),
                 "TryExec" => entry.try_exec = Some(value.to_owned()),
                 "Categories" => {
                     entry.categories = value
@@ -143,6 +169,9 @@ fn on_path(program: &str) -> bool {
 mod tests {
     use super::*;
 
+    /// The tests that point the data folders somewhere else take turns.
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     const CODE: &str = "[Desktop Entry]
 Name=Visual Studio Code Insiders
 Exec=/usr/bin/code-insiders %F
@@ -191,6 +220,35 @@ Exec=/usr/bin/code-insiders --new-window %F
     }
 
     #[test]
+    fn finds_an_apps_icon_in_the_theme_folders() {
+        let tmp = tempfile::tempdir().unwrap();
+        let data = tmp.path().join("share");
+        fs::create_dir_all(data.join("applications")).unwrap();
+        fs::create_dir_all(data.join("icons/hicolor/scalable/apps")).unwrap();
+        fs::write(
+            data.join("applications/org.example.Editor.desktop"),
+            "[Desktop Entry]\nName=Editor\nType=Application\nExec=editor\nIcon=org.example.Editor\n",
+        )
+        .unwrap();
+        fs::write(
+            data.join("icons/hicolor/scalable/apps/org.example.Editor.svg"),
+            "<svg/>",
+        )
+        .unwrap();
+        // SAFETY: only these tests in this crate read or set these variables, one at a time.
+        let _env = ENV.lock().unwrap();
+        unsafe {
+            std::env::set_var("XDG_DATA_HOME", &data);
+            std::env::set_var("XDG_DATA_DIRS", tmp.path().join("none"));
+        }
+        assert_eq!(
+            icon("org.example.Editor.desktop"),
+            Some(data.join("icons/hicolor/scalable/apps/org.example.Editor.svg"))
+        );
+        assert_eq!(icon("missing.desktop"), None);
+    }
+
+    #[test]
     fn user_entries_hide_system_ones() {
         let tmp = tempfile::tempdir().unwrap();
         let user = tmp.path().join("user");
@@ -203,7 +261,8 @@ Exec=/usr/bin/code-insiders --new-window %F
             )
             .unwrap();
         }
-        // SAFETY: only this test in this crate reads or sets these variables.
+        // SAFETY: only these tests in this crate read or set these variables, one at a time.
+        let _env = ENV.lock().unwrap();
         unsafe {
             std::env::set_var("XDG_DATA_HOME", &user);
             std::env::set_var("XDG_DATA_DIRS", &system);

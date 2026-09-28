@@ -33,6 +33,13 @@ pub fn terminals() -> Vec<App> {
     sorted(platform::terminals())
 }
 
+/// The icon file of the app whose desktop entry is `id`, like
+/// `org.gnome.Ptyxis.desktop`.
+#[cfg(target_os = "linux")]
+pub fn icon(id: &str) -> Option<std::path::PathBuf> {
+    desktop::icon(id)
+}
+
 /// The command that opens `terminal` in `dir`. Terminals take their starting folder
 /// in different ways; the ones not listed start in the folder they're started from,
 /// which the caller sets.
