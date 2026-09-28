@@ -43,7 +43,6 @@ html.page[data-platform="linux"] {
 }
 
 html.page[data-platform="linux"] body {
-  border: 1px solid var(--border);
   border-radius: 12px;
 }
 
@@ -54,7 +53,6 @@ html.page[data-platform="linux"] body {
   gap: 8px;
   height: 52px;
   padding: 0 10px 0 32px;
-  border-bottom: 1px solid var(--divider);
   background: var(--surface);
 }
 
@@ -110,7 +108,6 @@ h2 {
 }
 
 .list {
-  border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--surface);
 }
@@ -127,11 +124,6 @@ h2 {
   gap: 14px;
   min-height: 56px;
   padding: 10px 16px;
-}
-
-.item + .item,
-.nested + .item {
-  border-top: 1px solid var(--divider);
 }
 
 .item-text {
@@ -195,9 +187,14 @@ select.text {
   cursor: pointer;
 }
 
+.command {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* A plugin's own settings, under its row and indented to its name. */
 .nested {
-  border-top: 1px solid var(--divider);
   background: var(--page);
 }
 
@@ -342,9 +339,9 @@ select.text {
 .button {
   height: 32px;
   padding: 0 16px;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 8px;
-  background: var(--surface);
+  background: var(--field);
   color: var(--text);
   font: inherit;
   font-size: 13px;
@@ -388,7 +385,6 @@ select.text {
   align-items: center;
   gap: 16px;
   padding: 12px 32px;
-  border-top: 1px solid var(--divider);
   background: var(--surface);
 }
 

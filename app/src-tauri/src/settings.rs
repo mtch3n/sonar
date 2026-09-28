@@ -48,6 +48,9 @@ pub struct Files {
     /// The command that opens projects and code, like `code` or `zed`. Empty opens
     /// them in their default app.
     pub editor: String,
+    /// The terminal to open folders in, like `ptyxis` or `open -a iTerm`. Empty uses
+    /// the first one found.
+    pub terminal: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -179,6 +182,7 @@ impl Settings {
         within("rows", a.rows, 3, 20)?;
         within("limit", self.search.limit, 1, 500)?;
         self.editor()?;
+        self.terminal()?;
         within("rescan_minutes", self.index.rescan_minutes, 1, 24 * 60)?;
         for (id, plugin) in &self.plugins {
             if let Some(keyword) = &plugin.keyword {
@@ -204,13 +208,12 @@ impl Settings {
     /// The editor command split into the program and its arguments, or `None` when
     /// files open in their default app.
     pub fn editor(&self) -> Result<Option<Vec<String>>, String> {
-        let editor = self.files.editor.trim();
-        if editor.is_empty() {
-            return Ok(None);
-        }
-        shell_words::split(editor)
-            .map(Some)
-            .map_err(|_| format!("editor `{editor}` has a quote that isn't closed"))
+        command("editor", &self.files.editor)
+    }
+
+    /// The terminal command, or `None` to use the first terminal found.
+    pub fn terminal(&self) -> Result<Option<Vec<String>>, String> {
+        command("terminal", &self.files.terminal)
     }
 
     pub fn shortcut(&self) -> Shortcut {
@@ -300,6 +303,10 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
         settings.files.editor.as_str().into(),
     );
     set(
+        &mut doc["files"]["terminal"],
+        settings.files.terminal.as_str().into(),
+    );
+    set(
         &mut doc["index"]["rescan_minutes"],
         (settings.index.rescan_minutes as i64).into(),
     );
@@ -352,6 +359,17 @@ fn set(item: &mut toml_edit::Item, new: toml_edit::Value) {
     if let (Some(decor), Some(value)) = (decor, item.as_value_mut()) {
         *value.decor_mut() = decor;
     }
+}
+
+/// A command setting split into the program and its arguments; `None` when empty.
+fn command(name: &str, text: &str) -> Result<Option<Vec<String>>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    shell_words::split(text)
+        .map(Some)
+        .map_err(|_| format!("{name} `{text}` has a quote that isn't closed"))
 }
 
 fn within<T: PartialOrd + std::fmt::Display>(
@@ -494,6 +512,7 @@ limit = 20          # results to find when the query has no limit: filter
 
 [files]
 editor = ""         # opens projects and code, like "code" or "zed"; empty uses the default app
+terminal = ""       # opens folders, like "ptyxis" or "open -a iTerm"; empty uses the first found
 
 [index]
 rescan_minutes = 5  # how often to look for new and changed files
@@ -538,6 +557,7 @@ mod tests {
             ("shortcut = \"alt+space+k\"", "unknown modifier"),
             ("marketplaces = [\"nope\"]", "marketplace"),
             ("[files]\neditor = \"code '--new\"", "quote"),
+            ("[files]\nterminal = \"kitty '\"", "terminal"),
             ("[plugins.web]\nkeyword = \"two words\"", "plugins.web"),
         ] {
             let err = Settings::parse(text).unwrap_err();
@@ -651,10 +671,9 @@ mod tests {
     fn saving_adds_sections_an_older_file_lacks() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("settings.toml");
-        let old = template().replace("[files]\n", "").replace(
-            "editor = \"\"         # opens projects and code, like \"code\" or \"zed\"; empty uses the default app\n\n",
-            "",
-        );
+        let template = template();
+        let (before, rest) = template.split_once("[files]").unwrap();
+        let old = format!("{before}{}", &rest[rest.find("[index]").unwrap()..]);
         assert!(!old.contains("[files]"));
         fs::write(&path, old).unwrap();
         let mut settings = Settings::default();

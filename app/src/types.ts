@@ -59,7 +59,7 @@ export type Settings = {
   marketplaces: string[];
   appearance: { theme: "system" | "light" | "dark"; accent: string; width: number; rows: number };
   search: { limit: number };
-  files: { editor: string };
+  files: { editor: string; terminal: string };
   index: { rescan_minutes: number };
   updates: { check: boolean };
   plugins: Record<string, PluginSettings>;
@@ -75,10 +75,14 @@ export type PluginInfo = {
   settings: Setting[];
 };
 
+/** An installed editor or terminal, and its command as settings.toml holds it. */
+export type Tool = { name: string; command: string };
+
 export type Editor = {
   settings: Settings;
   plugins: PluginInfo[];
   path: string;
-  editors: string[];
+  editors: Tool[];
+  terminals: Tool[];
   problem: string | null;
 };

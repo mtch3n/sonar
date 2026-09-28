@@ -269,7 +269,8 @@ def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Pat
 
     driver.click("select[aria-label='Listed first'] option[value='duckduckgo']")
     driver.click("button[aria-label='Download exchange rates']")
-    driver.type("input[aria-label='Code editor']", "code --new-window")
+    driver.click("select[aria-label='Code editor'] option:last-child")
+    driver.type("input[aria-label='Code editor command']", "code --new-window")
     driver.click("button.primary")
     wait_for(lambda: driver.run("return document.querySelector('.status')?.textContent") == "Saved", 10, "Saved")
     text = settings.read_text()

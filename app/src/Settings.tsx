@@ -5,7 +5,7 @@ import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useState } fro
 import { Glyph } from "./icons";
 import { applyLook } from "./look";
 import { hint, withValue } from "./pluginSettings";
-import type { Editor, PluginSettings, Setting, SettingValue, Settings as Values } from "./types";
+import type { Editor, PluginSettings, Setting, SettingValue, Tool, Settings as Values } from "./types";
 import "./styles.css";
 import "./settings.css";
 
@@ -144,21 +144,23 @@ export default function Settings() {
         </Group>
 
         <Group title="Files">
-          <Row label="Code editor" hint="Opens projects, code, scripts and config. Empty uses each file's default app">
-            <input
-              className="text field"
-              list="editors"
+          <Row label="Code editor" hint="Opens projects, code, scripts and config files">
+            <CommandField
+              label="Code editor"
               value={draft.files.editor}
-              placeholder="Default app"
-              onChange={(e) => change({ ...draft, files: { editor: e.target.value } })}
-              aria-label="Code editor"
-              spellCheck={false}
+              tools={editor.editors}
+              none="Each file's default app"
+              onChange={(command) => change({ ...draft, files: { ...draft.files, editor: command } })}
             />
-            <datalist id="editors">
-              {editor.editors.map((command) => (
-                <option key={command} value={command} />
-              ))}
-            </datalist>
+          </Row>
+          <Row label="Terminal" hint="Opens folders">
+            <CommandField
+              label="Terminal"
+              value={draft.files.terminal}
+              tools={editor.terminals}
+              none="The first one found"
+              onChange={(command) => change({ ...draft, files: { ...draft.files, terminal: command } })}
+            />
           </Row>
         </Group>
 
@@ -355,6 +357,60 @@ function SettingField({
       );
   }
 }
+
+/** Picks an installed app, or takes any command under "Other command…". */
+function CommandField({
+  label,
+  value,
+  tools,
+  none,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  tools: Tool[];
+  none: string;
+  onChange: (command: string) => void;
+}) {
+  const listed = value === "" || tools.some((tool) => tool.command === value);
+  const [other, setOther] = useState(!listed);
+  return (
+    <span className="command">
+      <select
+        className="text field"
+        value={other ? OTHER : value}
+        onChange={(e) => {
+          const picked = e.target.value;
+          setOther(picked === OTHER);
+          if (picked !== OTHER) onChange(picked);
+        }}
+        aria-label={label}
+      >
+        <option value="">{none}</option>
+        {tools.map((tool) => (
+          <option key={tool.command} value={tool.command}>
+            {tool.name}
+          </option>
+        ))}
+        <option value={OTHER}>Other command…</option>
+      </select>
+      {other && (
+        <input
+          className="text field"
+          value={value}
+          placeholder="Command"
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={`${label} command`}
+          spellCheck={false}
+          autoFocus
+        />
+      )}
+    </span>
+  );
+}
+
+/** The select value for "Other command…"; no real command starts with a NUL. */
+const OTHER = "\u0000other";
 
 function NumberField({
   value,

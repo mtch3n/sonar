@@ -28,7 +28,7 @@ The builds aren't code-signed yet. On macOS, right-click the app and choose Open
 
 To use other keys, change `shortcut` in the [settings](#settings).
 
-In the search bar, ↑ and ↓ move, Enter opens the file, Ctrl + Enter (⌘ + Enter on macOS) shows it in its folder, and Esc closes. The bottom of the bar shows what Enter and Ctrl + Enter do for the selected result.
+In the search bar, ↑ and ↓ move, Enter opens the file, Ctrl + Enter (⌘ + Enter on macOS) shows it in its folder, or opens a folder or project in your terminal, and Esc closes. The bottom of the bar shows what Enter and Ctrl + Enter do for the selected result.
 
 ## Search
 
@@ -100,7 +100,8 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `appearance.width` | `720` | width of the search bar, 480 to 1600 |
 | `appearance.rows` | `8` | results shown before the list scrolls, 3 to 20 |
 | `search.limit` | `20` | results to find when the query has no `limit:` |
-| `files.editor` | empty | the command that opens projects, code, scripts and config files, like `code`, `zed` or `open -a 'Visual Studio Code'`; empty opens them in their default app |
+| `files.editor` | empty | the command that opens projects, code, scripts and config files, like `code`, `zed` or `open -a 'Visual Studio Code'`; empty opens them in their default app. Settings lists the editors it finds |
+| `files.terminal` | empty | the terminal Ctrl + Enter opens folders and projects in, like `ptyxis` or `open -a iTerm`; empty uses the first one found. Settings lists the terminals it finds |
 | `index.rescan_minutes` | `5` | how often to look for new and changed files |
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |

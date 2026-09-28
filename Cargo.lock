@@ -4445,6 +4445,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shell-words",
+ "sonar-apps",
  "sonar-core",
  "sonar-plugins",
  "tauri",
@@ -4460,6 +4461,14 @@ dependencies = [
  "toml_edit 0.25.15+spec-1.1.0",
  "webkit2gtk",
  "windows-registry 0.100.0",
+]
+
+[[package]]
+name = "sonar-apps"
+version = "0.4.0-1"
+dependencies = [
+ "shell-words",
+ "tempfile",
 ]
 
 [[package]]
