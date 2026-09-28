@@ -1,9 +1,9 @@
 use std::path::MAIN_SEPARATOR;
 
 use anyhow::Result;
-use rusqlite::{Connection, params_from_iter, types::Value};
+use rusqlite::{Connection, OptionalExtension, params_from_iter, types::Value};
 
-use crate::{DEFAULT_LIMIT, Kind, Query, Term, Within, words::words};
+use crate::{DEFAULT_LIMIT, Kind, Query, Term, Within, text, words::words};
 
 const AFTER_SEPARATOR: char = (MAIN_SEPARATOR as u8 + 1) as char;
 
@@ -14,32 +14,48 @@ pub struct Hit {
     pub kind: Kind,
     pub size: Option<u64>,
     pub mtime: i64,
+    /// The line that matched, when the file matched by its text and not its name.
+    pub line: Option<String>,
+}
+
+/// The columns a word is matched against.
+#[derive(Clone, Copy, PartialEq)]
+enum Scope {
+    /// Names and folders only.
+    Names,
+    /// Names, folders and, for long enough words, the text inside files.
+    Everything,
 }
 
 pub(crate) fn search(conn: &Connection, q: &Query, now: i64) -> Result<Vec<Hit>> {
-    let mut sql = String::from("SELECT f.path, f.name, f.kind, f.size, f.mtime FROM ");
+    let mut sql = String::from("SELECT f.id, f.path, f.name, f.kind, f.size, f.mtime, ");
     let mut args: Vec<Value> = Vec::new();
 
-    let text = join(q.terms.iter().map(term_expr), " ");
+    let text = join(q.terms.iter().map(|t| term_expr(t, Scope::Everything)), " ");
     match &text {
         Some(expr) => {
+            let by_name =
+                join(q.terms.iter().map(|t| term_expr(t, Scope::Names)), " ").unwrap_or_default();
             sql.push_str(
-                "files_fts JOIN files f ON f.id = files_fts.rowid WHERE files_fts MATCH ?",
+                "f.id IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?) AS by_name
+                 FROM files_fts JOIN files f ON f.id = files_fts.rowid WHERE files_fts MATCH ?",
             );
+            args.push(Value::Text(by_name));
             args.push(Value::Text(expr.clone()));
         }
-        None => sql.push_str("files f WHERE 1"),
+        None => sql.push_str("1 AS by_name FROM files f WHERE 1"),
     }
 
     if q.kinds.is_empty() && q.exts.is_empty() && q.within.is_empty() {
         sql.push_str(" AND f.project_id IS NULL");
     }
     let excluded = q.exclude.iter().map(|word| {
-        term_expr(&Term {
+        let term = Term {
             text: word.clone(),
             exact: false,
             name_only: false,
-        })
+        };
+        term_expr(&term, Scope::Names)
     });
     if let Some(expr) = join(excluded, " OR ") {
         sql.push_str(" AND f.id NOT IN (SELECT rowid FROM files_fts WHERE files_fts MATCH ?)");
@@ -88,7 +104,7 @@ pub(crate) fn search(conn: &Connection, q: &Query, now: i64) -> Result<Vec<Hit>>
 
     if text.is_some() {
         sql.push_str(
-            " ORDER BY bm25(files_fts, 10.0, 1.0)
+            " ORDER BY by_name DESC, bm25(files_fts, 10.0, 1.0, 1.0)
                 * (CASE WHEN f.project_id IS NULL THEN 1.0 ELSE 0.3 END)
                 * (1.0 + 1.0 / (1.0 + max(0, ? - f.mtime) / 604800.0))",
         );
@@ -100,29 +116,62 @@ pub(crate) fn search(conn: &Connection, q: &Query, now: i64) -> Result<Vec<Hit>>
     args.push(Value::Integer(q.limit.unwrap_or(DEFAULT_LIMIT) as i64));
 
     let mut stmt = conn.prepare(&sql)?;
-    let hits = stmt
+    let rows = stmt
         .query_map(params_from_iter(args), |r| {
-            let kind: String = r.get(2)?;
-            let size: Option<i64> = r.get(3)?;
-            Ok(Hit {
-                path: r.get(0)?,
-                name: r.get(1)?,
+            let kind: String = r.get(3)?;
+            let size: Option<i64> = r.get(4)?;
+            let hit = Hit {
+                path: r.get(1)?,
+                name: r.get(2)?,
                 kind: Kind::from_name(&kind).unwrap_or(Kind::Other),
                 size: size.map(|s| s as u64),
-                mtime: r.get(4)?,
-            })
+                mtime: r.get(5)?,
+                line: None,
+            };
+            Ok((r.get::<_, i64>(0)?, r.get::<_, bool>(6)?, hit))
         })?
         .collect::<Result<Vec<_>, _>>()?;
+
+    let wanted: Vec<String> = q
+        .terms
+        .iter()
+        .flat_map(|t| {
+            words(&t.text)
+                .to_lowercase()
+                .split(' ')
+                .map(str::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .filter(|w| !w.is_empty())
+        .collect();
+    let mut texts = conn.prepare("SELECT text FROM texts WHERE id = ?1")?;
+    let mut hits = Vec::with_capacity(rows.len());
+    for (id, by_name, mut hit) in rows {
+        if !by_name {
+            let file_text: Option<String> = texts.query_row([id], |r| r.get(0)).optional()?;
+            hit.line = file_text.and_then(|t| text::matching_line(&t, &wanted));
+        }
+        hits.push(hit);
+    }
     Ok(hits)
 }
 
-fn term_expr(term: &Term) -> Option<String> {
+fn term_expr(term: &Term, scope: Scope) -> Option<String> {
     let phrase = words(&term.text);
     if phrase.is_empty() {
         return None;
     }
     let star = if term.exact { "" } else { "*" };
-    let column = if term.name_only { "name : " } else { "" };
+    // Short prefixes of Latin words would match the text of nearly every file, but
+    // a single CJK character is a word of its own.
+    let text_worthy = term.text.chars().count() >= 3 || !term.text.is_ascii();
+    let column = if term.name_only {
+        "name : "
+    } else if scope == Scope::Names || !text_worthy {
+        "{name dirs} : "
+    } else {
+        ""
+    };
     Some(format!("{column}\"{phrase}\"{star}"))
 }
 

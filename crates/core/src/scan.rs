@@ -9,7 +9,7 @@ use anyhow::Result;
 use ignore::WalkBuilder;
 use rusqlite::{Connection, OptionalExtension, Statement, Transaction, params};
 
-use crate::{Kind, Rules, words::words};
+use crate::{Kind, Rules, text, words::words};
 
 const PROJECT_MARKERS: &[&str] = &[
     ".git",
@@ -90,16 +90,19 @@ pub(crate) fn scan(conn: &mut Connection, root: &Path, rules: &Rules) -> Result<
             let ext = lowercase_ext(path);
 
             if let Some(kind) = file_type.is_dir().then(|| Kind::of_bundle(&ext)).flatten() {
-                writer.put(&Row {
-                    path: path_str,
-                    name,
-                    ext: &ext,
-                    kind,
-                    size: None,
-                    mtime,
-                    project_id,
-                    dirs: &dirs,
-                })?;
+                writer.put(
+                    &Row {
+                        path: path_str,
+                        name,
+                        ext: &ext,
+                        kind,
+                        size: None,
+                        mtime,
+                        project_id,
+                        dirs: &dirs,
+                    },
+                    || None,
+                )?;
                 stats.files += 1;
             } else if file_type.is_dir() {
                 let is_project =
@@ -109,16 +112,19 @@ pub(crate) fn scan(conn: &mut Connection, root: &Path, rules: &Rules) -> Result<
                 } else {
                     Kind::Folder
                 };
-                let id = writer.put(&Row {
-                    path: path_str,
-                    name,
-                    ext: "",
-                    kind,
-                    size: None,
-                    mtime,
-                    project_id,
-                    dirs: &dirs,
-                })?;
+                let id = writer.put(
+                    &Row {
+                        path: path_str,
+                        name,
+                        ext: "",
+                        kind,
+                        size: None,
+                        mtime,
+                        project_id,
+                        dirs: &dirs,
+                    },
+                    || None,
+                )?;
                 if is_project {
                     project = Some((path.to_owned(), id));
                     stats.projects += 1;
@@ -132,16 +138,21 @@ pub(crate) fn scan(conn: &mut Connection, root: &Path, rules: &Rules) -> Result<
                     Vec::new()
                 };
                 let kind = Kind::of_file(name, &ext, project_id.is_some(), &head);
-                writer.put(&Row {
-                    path: path_str,
-                    name,
-                    ext: &ext,
-                    kind,
-                    size: Some(meta.len() as i64),
-                    mtime,
-                    project_id,
-                    dirs: &dirs,
-                })?;
+                let readable =
+                    project_id.is_none() && text::is_readable(kind, &ext) && !is_placeholder(&meta);
+                writer.put(
+                    &Row {
+                        path: path_str,
+                        name,
+                        ext: &ext,
+                        kind,
+                        size: Some(meta.len() as i64),
+                        mtime,
+                        project_id,
+                        dirs: &dirs,
+                    },
+                    || if readable { text::read(path) } else { None },
+                )?;
                 stats.files += 1;
             }
         }
@@ -163,35 +174,63 @@ struct Row<'a> {
 }
 
 struct Writer<'t> {
+    find: Statement<'t>,
     insert: Statement<'t>,
     update: Statement<'t>,
-    fts: Statement<'t>,
+    fts_insert: Statement<'t>,
+    fts_delete: Statement<'t>,
+    text_put: Statement<'t>,
+    text_delete: Statement<'t>,
     scan_id: i64,
 }
 
 impl<'t> Writer<'t> {
     fn new(tx: &'t Transaction, scan_id: i64) -> Result<Writer<'t>> {
         Ok(Writer {
+            find: tx.prepare(
+                "SELECT id, kind, size, mtime, project_id IS NULL FROM files WHERE path = ?1",
+            )?,
             insert: tx.prepare(
                 "INSERT INTO files (path, name, ext, kind, size, mtime, project_id, scan_id)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                 ON CONFLICT (path) DO NOTHING
                  RETURNING id",
             )?,
             update: tx.prepare(
                 "UPDATE files SET kind = ?2, size = ?3, mtime = ?4, project_id = ?5, scan_id = ?6
-                 WHERE path = ?1
-                 RETURNING id",
+                 WHERE id = ?1",
             )?,
-            fts: tx.prepare("INSERT INTO files_fts (rowid, name, dirs) VALUES (?1, ?2, ?3)")?,
+            fts_insert: tx.prepare(
+                "INSERT INTO files_fts (rowid, name, dirs, body) VALUES (?1, ?2, ?3, ?4)",
+            )?,
+            fts_delete: tx.prepare("DELETE FROM files_fts WHERE rowid = ?1")?,
+            text_put: tx.prepare("INSERT OR REPLACE INTO texts (id, text) VALUES (?1, ?2)")?,
+            text_delete: tx.prepare("DELETE FROM texts WHERE id = ?1")?,
             scan_id,
         })
     }
 
-    fn put(&mut self, row: &Row) -> Result<i64> {
-        let inserted: Option<i64> = self
-            .insert
-            .query_row(
+    /// Writes a row, and reads its text with `text` only when the file is new or
+    /// has changed since the last scan.
+    fn put(&mut self, row: &Row, text: impl FnOnce() -> Option<String>) -> Result<i64> {
+        let found: Option<(i64, String, Option<i64>, i64, bool)> = self
+            .find
+            .query_row([row.path], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .optional()?;
+        let id = match &found {
+            Some((id, ..)) => {
+                self.update.execute(params![
+                    id,
+                    row.kind.as_str(),
+                    row.size,
+                    row.mtime,
+                    row.project_id,
+                    self.scan_id
+                ])?;
+                *id
+            }
+            None => self.insert.query_row(
                 params![
                     row.path,
                     row.name,
@@ -203,24 +242,29 @@ impl<'t> Writer<'t> {
                     self.scan_id
                 ],
                 |r| r.get(0),
-            )
-            .optional()?;
-        if let Some(id) = inserted {
-            let name_words = format!("{} {}", row.name, words(row.name));
-            self.fts.execute(params![id, name_words, row.dirs])?;
+            )?,
+        };
+        let unchanged = found.is_some_and(|(_, kind, size, mtime, outside)| {
+            kind == row.kind.as_str()
+                && size == row.size
+                && mtime == row.mtime
+                && outside == row.project_id.is_none()
+        });
+        if unchanged {
             return Ok(id);
         }
-        Ok(self.update.query_row(
-            params![
-                row.path,
-                row.kind.as_str(),
-                row.size,
-                row.mtime,
-                row.project_id,
-                self.scan_id
-            ],
-            |r| r.get(0),
-        )?)
+
+        let text = text();
+        let name_words = format!("{} {}", row.name, words(row.name));
+        let body = text.as_deref().map(words).unwrap_or_default();
+        self.fts_delete.execute([id])?;
+        self.fts_insert
+            .execute(params![id, name_words, row.dirs, body])?;
+        match &text {
+            Some(text) => self.text_put.execute(params![id, text])?,
+            None => self.text_delete.execute([id])?,
+        };
+        Ok(id)
     }
 }
 
@@ -246,6 +290,33 @@ fn hidden_by_os(entry: &ignore::DirEntry) -> bool {
 
 #[cfg(not(windows))]
 fn hidden_by_os(_: &ignore::DirEntry) -> bool {
+    false
+}
+
+/// Whether the file is only a stand-in for one in the cloud, which reading would
+/// download.
+#[cfg(windows)]
+fn is_placeholder(meta: &Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    const FILE_ATTRIBUTE_OFFLINE: u32 = 0x1000;
+    const FILE_ATTRIBUTE_RECALL_ON_OPEN: u32 = 0x40000;
+    const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS: u32 = 0x400000;
+    meta.file_attributes()
+        & (FILE_ATTRIBUTE_OFFLINE
+            | FILE_ATTRIBUTE_RECALL_ON_OPEN
+            | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS)
+        != 0
+}
+
+#[cfg(target_os = "macos")]
+fn is_placeholder(meta: &Metadata) -> bool {
+    use std::os::macos::fs::MetadataExt;
+    const SF_DATALESS: u32 = 0x40000000;
+    meta.st_flags() & SF_DATALESS != 0
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn is_placeholder(_: &Metadata) -> bool {
     false
 }
 

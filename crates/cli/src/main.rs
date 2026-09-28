@@ -145,12 +145,16 @@ fn format_hit(hit: &Hit, home: &Path, now: i64, color: bool) -> String {
     if let Some(size) = hit.size {
         details.push(human_size(size));
     }
-    format!(
+    let mut out = format!(
         "{dim}{:<8}{reset}{bold}{}{reset}  {dim}{folder}  ·  {}{reset}",
         hit.kind.as_str(),
         hit.name,
         details.join(" · ")
-    )
+    );
+    if let Some(line) = &hit.line {
+        out.push_str(&format!("\n        {dim}{line}{reset}"));
+    }
+    out
 }
 
 fn tilde(path: &str, home: &Path) -> String {
