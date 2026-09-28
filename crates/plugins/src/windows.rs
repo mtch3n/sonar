@@ -39,7 +39,9 @@ enum Unavailable {
     /// Not GNOME, whose extension is the only way Sonar knows so far.
     Desktop,
     /// GNOME, but the extension isn't installed or hasn't loaded yet.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Extension,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     Failed(String),
 }
 
