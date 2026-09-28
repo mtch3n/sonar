@@ -197,14 +197,6 @@ impl Settings {
         self.plugins.get(id).cloned().unwrap_or_default()
     }
 
-    /// Whether the calculator is on and may download exchange rates.
-    pub fn downloads_rates(&self) -> bool {
-        use sonar_plugins::calculator;
-        let own = self.plugin(calculator::ID);
-        let (values, _) = sonar_plugins::resolve(&calculator::settings(), &own.values);
-        own.enabled && values[calculator::DOWNLOAD_RATES] == true
-    }
-
     /// The editor command split into the program and its arguments, or `None` when
     /// files open in their default app.
     pub fn editor(&self) -> Result<Option<Vec<String>>, String> {
@@ -656,15 +648,6 @@ mod tests {
                 "Visual Studio Code".into()
             ]))
         );
-    }
-
-    #[test]
-    fn rates_download_unless_turned_off() {
-        assert!(Settings::default().downloads_rates());
-        let off = Settings::parse("[plugins.calculator]\nrates = false\n").unwrap();
-        assert!(!off.downloads_rates());
-        let calculator_off = Settings::parse("[plugins.calculator]\nenabled = false\n").unwrap();
-        assert!(!calculator_off.downloads_rates());
     }
 
     #[test]

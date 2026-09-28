@@ -15,9 +15,8 @@ use std::{
 use serde::Serialize;
 use sonar_core::{Hit, Index, Kind, Paths, Query};
 use sonar_plugins::{
-    Action, Calculator, External, Item, Manifest, Position,
+    Action, External, Item, Manifest, Position,
     browser::{self, Browsers},
-    calculator,
     store::{self, Found, Marketplace, Repo, Source},
     strip_keyword,
 };
@@ -27,15 +26,16 @@ use tauri_plugin_opener::OpenerExt;
 use tokio::{sync::OnceCell, task::JoinSet};
 
 use crate::{
-    host, rates,
+    bundled, host,
     settings::{Settings, Theme},
     window,
 };
 
 /// Typing this and a space lists installed plugins and the marketplaces' plugins.
 const PLUGINS_KEYWORD: &str = "plugins";
-const CALCULATOR: &str = calculator::ID;
 const BROWSER: &str = browser::ID;
+/// How long the first batch of results waits for plugins without a keyword.
+const FIRST_ANSWERS: Duration = Duration::from_millis(50);
 /// How long an external plugin may take to answer before it is restarted.
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
@@ -46,7 +46,6 @@ pub struct Launcher {
     session: RwLock<Arc<Session>>,
     results: Mutex<Results>,
     indexing: AtomicBool,
-    rates: rates::Shared,
     /// Problems with the settings, plugins or shortcut, shown when the bar opens.
     notices: Mutex<Vec<String>>,
 }
@@ -54,9 +53,6 @@ pub struct Launcher {
 /// The plugins for one opening of the search bar. External plugins run only while
 /// the bar is open, so edits to a plugin apply the next time it opens.
 struct Session {
-    calculator: Option<Option<String>>,
-    /// The currency the calculator converts money to when the query doesn't say.
-    home_currency: String,
     /// Browser bookmarks and history, and the keyword that asks only them.
     browser: Option<(Option<String>, Arc<Browsers>)>,
     plugins: Vec<Plugin>,
@@ -186,7 +182,6 @@ impl Launcher {
             session: RwLock::new(Arc::new(Session::empty())),
             results: Mutex::default(),
             indexing: AtomicBool::new(true),
-            rates: rates::Shared::default(),
             notices: Mutex::default(),
             paths,
         };
@@ -207,18 +202,6 @@ impl Launcher {
         read(&self.settings).clone()
     }
 
-    /// Filled in and kept current by the rate keeper.
-    pub fn rates(&self) -> rates::Shared {
-        self.rates.clone()
-    }
-
-    fn calculator(&self, session: &Session) -> Calculator {
-        Calculator {
-            home: session.home_currency.clone(),
-            rates: read(&self.rates).clone(),
-        }
-    }
-
     pub fn set_indexing(&self, indexing: bool) {
         self.indexing.store(indexing, Ordering::Relaxed);
     }
@@ -234,7 +217,12 @@ impl Launcher {
             )),
         }
         let settings = self.current_settings();
+        let program = std::env::current_exe().unwrap_or_default();
+        if let Err(err) = bundled::write(&self.paths.bundled, &program) {
+            notices.push(format!("Couldn't set up Sonar's own plugins: {err}"));
+        }
         let session = Session::load(
+            &self.paths.bundled,
             &self.paths.plugins,
             &self.paths.plugin_data,
             &settings,
@@ -249,6 +237,7 @@ impl Launcher {
     pub fn stop_plugins(&self) {
         let settings = self.current_settings();
         let session = Session::load(
+            &self.paths.bundled,
             &self.paths.plugins,
             &self.paths.plugin_data,
             &settings,
@@ -298,21 +287,6 @@ impl Launcher {
         if let Some(rest) = strip_keyword(query, PLUGINS_KEYWORD) {
             return self.plugins_view(generation, &session, rest, send).await;
         }
-        if let Some(Some(keyword)) = &session.calculator
-            && let Some(rest) = strip_keyword(query, keyword)
-        {
-            let rows = self.rows(
-                generation,
-                self.calculator(&session)
-                    .calculate(rest)
-                    .map(calculator_draft),
-            );
-            let empty = rows
-                .is_empty()
-                .then(|| "Type a calculation, like 2^10, 5 km to miles or 100 usd".to_owned());
-            send(vec![section(CALCULATOR, "Calculator", 0, rows, empty)]);
-            return Ok(());
-        }
         if let Some((Some(keyword), browsers)) = &session.browser
             && let Some(rest) = strip_keyword(query, keyword)
         {
@@ -351,15 +325,7 @@ impl Launcher {
         if !suggestions.is_empty() {
             sections.push(section("keywords", "Plugins", 0, suggestions, None));
         }
-        if session.calculator == Some(None)
-            && let Some(item) = self.calculator(&session).calculate(query)
-        {
-            let rows = self.rows(generation, Some(calculator_draft(item)));
-            sections.push(section(CALCULATOR, "Calculator", 10, rows, None));
-        }
-        sections.push(self.files(generation, query));
-        send(sections);
-
+        let started = tokio::time::Instant::now();
         let mut asked = JoinSet::new();
         let global = session
             .plugins
@@ -379,6 +345,19 @@ impl Launcher {
                 (rank, external, answer)
             });
         }
+        sections.push(self.files(generation, query));
+        // Quick answers, like the calculator's, join the files rather than pop in
+        // above them a moment later.
+        let deadline = started + FIRST_ANSWERS;
+        while let Ok(Some(Ok((rank, external, answer)))) =
+            tokio::time::timeout_at(deadline, asked.join_next()).await
+        {
+            if let Some(answer) = answer.filter(|a| !matches!(a, Ok(items) if items.is_empty())) {
+                sections.push(self.plugin_section(generation, &external.manifest, rank, answer));
+            }
+        }
+        send(sections);
+
         // Reading history takes a moment, so its section follows the files.
         if let Some((None, browsers)) = &session.browser {
             let found = search_browsers(browsers, query).await;
@@ -698,8 +677,6 @@ impl Launcher {
 impl Session {
     fn empty() -> Session {
         Session {
-            calculator: None,
-            home_currency: "USD".to_owned(),
             browser: None,
             plugins: Vec::new(),
             disabled: Vec::new(),
@@ -707,17 +684,15 @@ impl Session {
         }
     }
 
-    fn load(dir: &Path, data: &Path, settings: &Settings, notices: &mut Vec<String>) -> Session {
-        let calculator = settings.plugin(CALCULATOR);
-        let (values, problems) =
-            sonar_plugins::resolve(&calculator::settings(), &calculator.values);
-        notices.extend(problems.into_iter().map(|problem| {
-            format!("Calculator: {problem}; fix it under [plugins.{CALCULATOR}] in settings.toml")
-        }));
-        let home_currency = values[calculator::CURRENCY]
-            .as_str()
-            .unwrap_or("USD")
-            .to_owned();
+    /// The plugins in `bundled` and `dir`, where one with the same id replaces
+    /// Sonar's own. Each keeps its files in a folder of `data`.
+    fn load(
+        bundled: &Path,
+        dir: &Path,
+        data: &Path,
+        settings: &Settings,
+        notices: &mut Vec<String>,
+    ) -> Session {
         let browser_config = settings.plugin(BROWSER);
         let (values, problems) =
             sonar_plugins::resolve(&browser::settings(), &browser_config.values);
@@ -730,12 +705,15 @@ impl Session {
                 Arc::new(Browsers::load(&values)),
             )
         });
-        let (manifests, problems) = sonar_plugins::discover(dir);
+        let (mut manifests, problems) = sonar_plugins::discover(bundled);
         notices.extend(problems);
+        let (installed, problems) = sonar_plugins::discover(dir);
+        notices.extend(problems);
+        manifests.retain(|own| !installed.iter().any(|m| m.id == own.id));
+        manifests.extend(installed);
         let mut plugins: Vec<Plugin> = Vec::new();
         let mut disabled = Vec::new();
         let mut keywords = vec![PLUGINS_KEYWORD.to_owned()];
-        keywords.extend(calculator.keyword.clone());
         keywords.extend(browser_config.keyword.clone());
         for manifest in manifests {
             let config = settings.plugin(&manifest.id);
@@ -764,12 +742,19 @@ impl Session {
             }
             let missing = manifest.missing();
             let data = data.join(&manifest.id);
+            // Sonar's own plugins are this program, which needs the AppImage's
+            // libraries; other plugins get the user's environment.
+            let prepare = if manifest.dir.starts_with(bundled) {
+                host::prepare_bundled
+            } else {
+                host::prepare_plugin
+            };
             plugins.push(Plugin {
                 external: Arc::new(External::new(
                     manifest,
                     data,
                     values,
-                    host::prepare_plugin,
+                    prepare,
                     ANSWER_WITHIN,
                 )),
                 keyword,
@@ -777,8 +762,6 @@ impl Session {
             });
         }
         Session {
-            calculator: calculator.enabled.then_some(calculator.keyword),
-            home_currency,
             browser,
             plugins,
             disabled,
@@ -869,21 +852,6 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
             alt_label: None,
         });
     }
-    if let Some(Some(keyword)) = &session.calculator
-        && query == keyword
-    {
-        drafts.push(Draft {
-            title: "Calculator".into(),
-            subtitle: Some("Arithmetic and unit conversions".into()),
-            meta: None,
-            icon: "calculator",
-            image: None,
-            action: fill(keyword),
-            alt: None,
-            label: None,
-            alt_label: None,
-        });
-    }
     for plugin in &session.plugins {
         let manifest = &plugin.external.manifest;
         if plugin.keyword.as_deref() == Some(query) {
@@ -928,23 +896,6 @@ fn browser_draft(found: browser::Found) -> Draft {
         alt: item.alt.map(open),
         label: None,
         alt_label: None,
-    }
-}
-
-fn calculator_draft(item: Item) -> Draft {
-    Draft {
-        title: item.title,
-        subtitle: item.subtitle,
-        meta: None,
-        icon: "calculator",
-        image: None,
-        action: Command::Plugin {
-            action: item.action,
-            dir: None,
-        },
-        alt: item.alt.map(|action| Command::Plugin { action, dir: None }),
-        label: item.label,
-        alt_label: item.alt_label,
     }
 }
 
@@ -1262,13 +1213,15 @@ mod tests {
             "echo",
             "name = \"Echo\"\ncommand = [\"echo\"]\n\n[[settings]]\nkey = \"first\"\ntitle = \"First\"\ntype = \"choice\"\noptions = [{ value = \"a\", title = \"A\" }, { value = \"b\", title = \"B\" }]\n",
         );
-        let settings = Settings::parse(
-            "[plugins.calculator]\ncurrency = \"EUR\"\n\n[plugins.echo]\nfirst = \"c\"\nextra = 1\n",
-        )
-        .unwrap();
+        let settings = Settings::parse("[plugins.echo]\nfirst = \"c\"\nextra = 1\n").unwrap();
         let mut notices = Vec::new();
-        let session = Session::load(tmp.path(), tmp.path(), &settings, &mut notices);
-        assert_eq!(session.home_currency, "EUR");
+        let session = Session::load(
+            &tmp.path().join("bundled"),
+            tmp.path(),
+            tmp.path(),
+            &settings,
+            &mut notices,
+        );
         assert_eq!(
             session.plugins.len(),
             1,
@@ -1280,15 +1233,6 @@ mod tests {
                 "Plugin Echo: `first` is `c`; use one of a, b; fix it under [plugins.echo] in settings.toml",
                 "Plugin Echo: there's no setting `extra`; fix it under [plugins.echo] in settings.toml",
             ]
-        );
-
-        let settings = Settings::parse("[plugins.calculator]\ncurrency = \"XYZ\"\n").unwrap();
-        let mut notices = Vec::new();
-        let session = Session::load(tmp.path(), tmp.path(), &settings, &mut notices);
-        assert_ne!(session.home_currency, "XYZ");
-        assert!(
-            notices[0].starts_with("Calculator: `currency` is `XYZ`"),
-            "{notices:?}"
         );
     }
 
@@ -1369,7 +1313,13 @@ mod tests {
         let settings =
             Settings::parse("[plugins.browser]\nkeyword = \"b\"\nresults = 50\n").unwrap();
         let mut notices = Vec::new();
-        let session = Session::load(tmp.path(), tmp.path(), &settings, &mut notices);
+        let session = Session::load(
+            &tmp.path().join("bundled"),
+            tmp.path(),
+            tmp.path(),
+            &settings,
+            &mut notices,
+        );
         assert!(matches!(&session.browser, Some((Some(keyword), _)) if keyword == "b"));
         assert_eq!(
             notices,
@@ -1379,9 +1329,15 @@ mod tests {
         );
         let off = Settings::parse("[plugins.browser]\nenabled = false\n").unwrap();
         assert!(
-            Session::load(tmp.path(), tmp.path(), &off, &mut Vec::new())
-                .browser
-                .is_none()
+            Session::load(
+                &tmp.path().join("bundled"),
+                tmp.path(),
+                tmp.path(),
+                &off,
+                &mut Vec::new()
+            )
+            .browser
+            .is_none()
         );
     }
 

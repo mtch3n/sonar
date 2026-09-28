@@ -23,8 +23,8 @@ pub use search::Hit;
 pub struct Paths {
     pub home: PathBuf,
     pub db: PathBuf,
-    /// The calculator's exchange rates, kept between runs.
-    pub rates: PathBuf,
+    /// Folders Sonar writes for the plugins it ships with.
+    pub bundled: PathBuf,
     pub rules: PathBuf,
     pub settings: PathBuf,
     pub plugins: PathBuf,
@@ -42,7 +42,7 @@ impl Paths {
         Ok(Paths {
             home,
             db: data.join("sonar").join("index.db"),
-            rates: data.join("sonar").join("rates.json"),
+            bundled: data.join("sonar").join("bundled"),
             rules: config.join("ignore"),
             settings: config.join("settings.toml"),
             plugins: config.join("plugins"),

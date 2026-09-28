@@ -74,19 +74,9 @@ pub struct PluginInfo {
     problem: Option<String>,
 }
 
-/// The calculator, the browser search and every installed plugin, on or off.
+/// The browser search and every plugin, Sonar's own and installed, on or off.
 fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
     let mut plugins = vec![PluginInfo {
-        id: sonar_plugins::calculator::ID.into(),
-        name: "Calculator".into(),
-        description: Some("Arithmetic, units and currencies, built in".into()),
-        keyword: None,
-        image: None,
-        icon: "calculator",
-        settings: sonar_plugins::calculator::settings(),
-        problem: None,
-    }];
-    plugins.push(PluginInfo {
         id: sonar_plugins::browser::ID.into(),
         name: "Browser".into(),
         description: Some(
@@ -97,7 +87,7 @@ fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
         icon: "bookmark",
         settings: sonar_plugins::browser::settings(),
         problem: None,
-    });
+    }];
     plugins.extend(launcher.installed().into_iter().map(|manifest| PluginInfo {
         problem: manifest.missing(),
         id: manifest.id,

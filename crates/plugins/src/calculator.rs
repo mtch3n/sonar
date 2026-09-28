@@ -1,6 +1,7 @@
 use std::{
+    path::PathBuf,
     sync::{
-        Arc,
+        Arc, RwLock,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -13,6 +14,48 @@ use crate::{
 
 /// How long one calculation may run before it is abandoned.
 const BUDGET: Duration = Duration::from_millis(50);
+
+/// Runs the calculator as a plugin, which `sonar-app --plugin calculator` does. The
+/// exchange rates saved in its data folder are used at once; newer ones download in
+/// the background when they're due and downloading is on.
+pub fn serve() {
+    let saved =
+        std::env::var_os("SONAR_PLUGIN_DATA").map(|dir| PathBuf::from(dir).join("rates.json"));
+    let rates: Arc<RwLock<Option<Arc<Rates>>>> = Arc::new(RwLock::new(
+        saved.as_deref().and_then(Rates::load).map(Arc::new),
+    ));
+    let mut asked = false;
+    crate::serve(|query, settings| {
+        let now = jiff::Timestamp::now().as_second();
+        let current = rates.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let due = current.as_ref().is_none_or(|r| r.is_due(now));
+        // Once per run: the plugin lives while the search bar is open.
+        if due && !asked && settings.get(DOWNLOAD_RATES) != Some(&false.into()) {
+            asked = true;
+            let (rates, saved) = (rates.clone(), saved.clone());
+            std::thread::spawn(move || match Rates::download() {
+                Ok(fresh) => {
+                    if let Some(path) = &saved
+                        && let Err(err) = fresh.save(path)
+                    {
+                        eprintln!("couldn't save exchange rates: {err}");
+                    }
+                    *rates.write().unwrap_or_else(|p| p.into_inner()) = Some(Arc::new(fresh));
+                }
+                Err(err) => eprintln!("{err}"),
+            });
+        }
+        let home = settings
+            .get(CURRENCY)
+            .and_then(|c| c.as_str())
+            .map_or_else(currency::local_currency, str::to_owned);
+        let calculator = Calculator {
+            home,
+            rates: current,
+        };
+        Ok(calculator.calculate(query).into_iter().collect())
+    });
+}
 
 /// The calculator's id in `settings.toml`, like a plugin's folder name.
 pub const ID: &str = "calculator";
@@ -89,16 +132,9 @@ impl Calculator {
             return None;
         }
         if !money {
-            return Some(Item {
-                title: value.clone(),
-                subtitle: None,
-                action: Action::Copy(value),
-                alt: None,
-                icon: None,
-                image: None,
-                label: None,
-                alt_label: None,
-            });
+            let mut item = Item::new(value.clone(), Action::Copy(value));
+            item.icon = Some("calculator".into());
+            return Some(item);
         }
         let rates = self.rates.as_ref()?;
         let (amount, unit) = split_amount(&value)?;
@@ -112,7 +148,7 @@ impl Calculator {
             subtitle: Some(format!("{} rates of {published}", currency::SOURCE)),
             action: Action::Copy(title),
             alt: Some(Action::Copy(format!("{amount:.decimals$}"))),
-            icon: None,
+            icon: Some("calculator".into()),
             image: None,
             label: None,
             alt_label: Some("Copy number".into()),
