@@ -23,6 +23,26 @@ impl App {
     }
 }
 
+/// An app to open from the search bar.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Launchable {
+    pub name: String,
+    /// What else people call it, like "Web Browser" for Firefox.
+    pub other_names: Vec<String>,
+    /// A PNG or SVG the search window can show.
+    pub icon: Option<std::path::PathBuf>,
+    /// The command that opens it.
+    pub open: Vec<String>,
+}
+
+/// Every app the desktop lists, sorted by name.
+pub fn launchable() -> Vec<Launchable> {
+    let mut apps = platform::launchable();
+    apps.sort_by_key(|app| app.name.to_lowercase());
+    apps.dedup_by(|a, b| a.name == b.name && a.open == b.open);
+    apps
+}
+
 /// Apps that edit text and code, most people's pick first where that's known.
 pub fn editors() -> Vec<App> {
     sorted(platform::editors())
@@ -76,7 +96,11 @@ fn sorted(mut apps: Vec<App>) -> Vec<App> {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    use super::{App, desktop};
+    use super::{App, Launchable, desktop};
+
+    pub fn launchable() -> Vec<Launchable> {
+        desktop::launchable()
+    }
 
     pub fn editors() -> Vec<App> {
         desktop::apps(|categories| categories.iter().any(|c| c == "TextEditor" || c == "IDE"))
@@ -89,7 +113,43 @@ mod platform {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::{App, installed_bundle};
+    use std::path::PathBuf;
+
+    use super::{App, Launchable, installed_bundle};
+
+    /// The `.app` bundles in the Applications folders, opened with `open -a`. Their
+    /// icons are `.icns`, which the search window can't show, so none are given.
+    pub fn launchable() -> Vec<Launchable> {
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let folders = [
+            Some(PathBuf::from("/Applications")),
+            Some(PathBuf::from("/Applications/Utilities")),
+            Some(PathBuf::from("/System/Applications")),
+            Some(PathBuf::from("/System/Applications/Utilities")),
+            home.map(|h| h.join("Applications")),
+        ];
+        folders
+            .into_iter()
+            .flatten()
+            .filter_map(|folder| std::fs::read_dir(folder).ok())
+            .flat_map(|entries| entries.flatten().map(|e| e.path()))
+            .filter(|path| path.extension().is_some_and(|ext| ext == "app"))
+            .map(|path| Launchable {
+                name: path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                other_names: Vec::new(),
+                icon: None,
+                open: vec![
+                    "open".into(),
+                    "-a".into(),
+                    path.to_string_lossy().into_owned(),
+                ],
+            })
+            .collect()
+    }
 
     const EDITORS: &[&str] = &[
         "Visual Studio Code",
@@ -172,9 +232,51 @@ fn installed_bundle(name: &str) -> bool {
 
 #[cfg(windows)]
 mod platform {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
-    use super::{App, first_existing};
+    use super::{App, Launchable, first_existing};
+
+    /// The shortcuts in the Start menu, opened the way the Start menu opens them.
+    pub fn launchable() -> Vec<Launchable> {
+        let roots = [std::env::var_os("APPDATA"), std::env::var_os("ProgramData")];
+        let mut found = Vec::new();
+        for root in roots.into_iter().flatten() {
+            collect(
+                &PathBuf::from(root).join(r"Microsoft\Windows\Start Menu\Programs"),
+                &mut found,
+            );
+        }
+        found
+    }
+
+    fn collect(dir: &Path, found: &mut Vec<Launchable>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for path in entries.flatten().map(|e| e.path()) {
+            if path.is_dir() {
+                collect(&path, found);
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let lower = name.to_lowercase();
+            let is_shortcut = path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("lnk"));
+            if is_shortcut && !lower.contains("uninstall") {
+                found.push(Launchable {
+                    name,
+                    other_names: Vec::new(),
+                    icon: None,
+                    open: vec!["explorer.exe".into(), path.to_string_lossy().into_owned()],
+                });
+            }
+        }
+    }
 
     /// Where each editor installs, relative to the per-user and machine-wide
     /// program folders.

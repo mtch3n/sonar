@@ -75,7 +75,7 @@ Sonar reads the browsers' own files, so it needs no extension, and nothing is se
 
 ## Plugins
 
-Plugins add results of their own. Sonar ships with four, which can be turned off or given another keyword in Settings like any other plugin: the calculator and the browser search, System (type `lock`, `sleep`, `restart`, `shut down`, `log out` or `empty trash`; restarting, shutting down and logging out ask for a second Enter first) and Processes (`kill chrome` lists matching programs by memory; Enter ends one, Ctrl + Enter forces it) and Windows (`w` lists your open windows, most recent first; Enter switches to one, Ctrl + Enter closes it).
+Plugins add results of their own. Sonar ships with six, which can be turned off or given another keyword in Settings like any other plugin: Apps (type part of an app's name, like `fire` for Firefox or `vsc` for Visual Studio Code, to open it), the calculator and the browser search, System (type `lock`, `sleep`, `restart`, `shut down`, `log out` or `empty trash`; restarting, shutting down and logging out ask for a second Enter first) and Processes (`kill chrome` lists matching programs by memory; Enter ends one, Ctrl + Enter forces it) and Windows (`w` lists your open windows, most recent first; Enter switches to one, Ctrl + Enter closes it).
 
 Windows works on GNOME for now. GNOME only shows other apps' windows to its own extensions, so the first time you type `w`, Sonar offers to install a small one; log out and back in afterwards. To use it in place of Alt + Tab, move GNOME's switcher to another key and bind Alt + Tab to Sonar with the window list already typed:
 
