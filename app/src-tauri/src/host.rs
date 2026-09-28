@@ -63,6 +63,19 @@ pub fn prepare_plugin(command: &mut Command) {
     }
 }
 
+/// Sonar's own plugins are this same program, so they keep its environment, which
+/// inside an AppImage points at the libraries it needs.
+pub fn prepare_bundled(command: &mut Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
 /// Opens a file, folder or URL in its default app.
 pub fn open(app: &tauri::AppHandle, target: &str) -> Result<(), String> {
     // The opener plugin starts xdg-open with Sonar's own environment, which is the

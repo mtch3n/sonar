@@ -73,7 +73,7 @@ Sonar reads the browsers' own files, so it needs no extension, and nothing is se
 
 ## Plugins
 
-Plugins add results of their own. Most start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
+Plugins add results of their own. The calculator is one: it ships with Sonar and runs as a plugin, so it can be turned off or given a keyword in Settings like any other. Most plugins start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
 
 Type `plugins` and a space to see what's installed and what the marketplaces offer. Enter installs or updates the selected plugin, and Ctrl + Enter removes it. Type `plugins` and a GitHub repository, like `plugins alice/sonar-emoji` or a github.com link, to add it: a repository with a single plugin is installed, and a marketplace is added to your list. Plugins… in the tray menu opens the same list.
 
