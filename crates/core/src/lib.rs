@@ -3,6 +3,7 @@ mod documents;
 mod hash;
 mod kind;
 mod level;
+mod meaning;
 mod query;
 mod rules;
 mod scan;
@@ -17,6 +18,7 @@ use rusqlite::Connection;
 
 pub use kind::Kind;
 pub use level::{Level, Levels};
+pub use meaning::{EmbedStats, Embedder};
 pub use query::{DEFAULT_LIMIT, ParseError, Query, Term, Within};
 pub use rules::Rules;
 pub use scan::{ScanOptions, ScanStats};
@@ -27,6 +29,8 @@ pub use text::DEFAULT_TEXT_LIMIT;
 pub struct Paths {
     pub home: PathBuf,
     pub db: PathBuf,
+    /// Where the models that search by meaning are downloaded.
+    pub models: PathBuf,
     /// Folders Sonar writes for the plugins it ships with.
     pub bundled: PathBuf,
     pub rules: PathBuf,
@@ -46,6 +50,7 @@ impl Paths {
         Ok(Paths {
             home,
             db: data.join("sonar").join("index.db"),
+            models: data.join("sonar").join("models"),
             bundled: data.join("sonar").join("bundled"),
             rules: config.join("ignore"),
             settings: config.join("settings.toml"),
@@ -57,12 +62,15 @@ impl Paths {
 
 pub struct Index {
     conn: Connection,
+    /// The vectors of the model last searched with, loaded on first use.
+    store: Option<meaning::Store>,
 }
 
 impl Index {
     pub fn open(path: &Path) -> Result<Index> {
         Ok(Index {
             conn: db::open(path)?,
+            store: None,
         })
     }
 
@@ -82,8 +90,40 @@ impl Index {
             .collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Files matching `query` by their names and words.
     pub fn search(&self, query: &Query) -> Result<Vec<Hit>> {
-        search::search(&self.conn, query, jiff::Timestamp::now().as_second())
+        search::search(&self.conn, query, jiff::Timestamp::now().as_second(), None)
+    }
+
+    /// Files matching `query` by their names and words, or by meaning as `embedder`
+    /// understands it.
+    pub fn search_with(&mut self, query: &Query, embedder: &mut dyn Embedder) -> Result<Vec<Hit>> {
+        let meaning = search::Meaning {
+            embedder,
+            store: &mut self.store,
+        };
+        search::search(
+            &self.conn,
+            query,
+            jiff::Timestamp::now().as_second(),
+            Some(meaning),
+        )
+    }
+
+    /// Embeds what files searched by meaning need and `embedder` hasn't embedded
+    /// yet. `progress` hears what's done after each batch, and stops it early by
+    /// returning false.
+    pub fn embed(
+        &mut self,
+        embedder: &mut dyn Embedder,
+        progress: &mut dyn FnMut(&EmbedStats) -> bool,
+    ) -> Result<EmbedStats> {
+        meaning::embed(&mut self.conn, embedder, progress)
+    }
+
+    /// How many names and files model `model` has yet to embed.
+    pub fn pending_meaning(&self, model: &str) -> Result<(u64, u64)> {
+        meaning::pending(&self.conn, model)
     }
 
     pub fn is_empty(&self) -> Result<bool> {

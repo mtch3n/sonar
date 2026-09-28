@@ -62,6 +62,17 @@ fn read_plain(path: &Path, limit: usize) -> Option<String> {
     (!text.is_empty()).then(|| text.to_owned())
 }
 
+/// The first line of `text` with something on it, shortened like a matching line.
+pub(crate) fn first_line(text: &str) -> Option<String> {
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let mut line = line.split_whitespace().collect::<Vec<_>>().join(" ");
+    if let Some((cut, _)) = line.char_indices().nth(LINE_CHARS) {
+        line.truncate(cut);
+        line.push('…');
+    }
+    Some(line)
+}
+
 /// The line of `text` with the most of `wanted` in it. A long line is shortened to
 /// start just before its first match. `wanted` are lowercase words, matched at the start of
 /// words in the line.

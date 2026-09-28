@@ -60,6 +60,31 @@ pub struct Editor {
     problem: Option<String>,
     /// The kinds of file whose level can be chosen.
     kinds: Vec<KindLevels>,
+    /// The models that can search by meaning.
+    models: Vec<ModelChoice>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelChoice {
+    id: &'static str,
+    name: &'static str,
+    description: &'static str,
+    download_mb: u32,
+    downloaded: bool,
+}
+
+fn models(dir: &std::path::Path) -> Vec<ModelChoice> {
+    sonar_models::MODELS
+        .iter()
+        .map(|m| ModelChoice {
+            id: m.id,
+            name: m.name,
+            description: m.description,
+            download_mb: m.download_mb,
+            downloaded: sonar_models::is_downloaded(m.id, dir),
+        })
+        .collect()
 }
 
 #[derive(Serialize)]
@@ -133,6 +158,7 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
         path: path.display().to_string(),
         problem: Settings::load(path).err(),
         kinds: kinds(),
+        models: models(&launcher.paths().models),
     }
 }
 

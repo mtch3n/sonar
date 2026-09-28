@@ -30,6 +30,7 @@ tauri-plugin-updater.workspace = true
 tokio = { workspace = true, features = ["sync", "rt"] }
 toml.workspace = true
 sonar-settings.workspace = true
+sonar-models.workspace = true
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut.workspace = true

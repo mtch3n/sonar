@@ -16,6 +16,7 @@ pub struct Settings {
     pub search: Search,
     pub files: Files,
     pub index: Index,
+    pub meaning: Meaning,
     pub updates: Updates,
     pub plugins: BTreeMap<String, PluginSettings>,
 }
@@ -117,6 +118,24 @@ impl Index {
     }
 }
 
+/// Searching by meaning, with a model that runs on this computer.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Meaning {
+    pub enabled: bool,
+    /// One of `sonar_models::MODELS`.
+    pub model: String,
+}
+
+impl Default for Meaning {
+    fn default() -> Meaning {
+        Meaning {
+            enabled: false,
+            model: sonar_models::DEFAULT_MODEL.to_owned(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Updates {
@@ -150,6 +169,7 @@ impl Default for Settings {
             search: Search::default(),
             files: Files::default(),
             index: Index::default(),
+            meaning: Meaning::default(),
             updates: Updates::default(),
             plugins: BTreeMap::new(),
         }
@@ -249,6 +269,14 @@ impl Settings {
         self.editor()?;
         self.terminal()?;
         self.index.check()?;
+        if sonar_models::info(&self.meaning.model).is_none() {
+            let models: Vec<&str> = sonar_models::MODELS.iter().map(|m| m.id).collect();
+            return Err(format!(
+                "meaning.model is `{}`; use one of: {}",
+                self.meaning.model,
+                models.join(", ")
+            ));
+        }
         for (id, plugin) in &self.plugins {
             if let Some(keyword) = &plugin.keyword {
                 sonar_plugins::check_keyword(keyword)
@@ -382,6 +410,14 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
     } else {
         doc["index"]["kinds"] = Item::Table(kinds);
     }
+    set(
+        &mut doc["meaning"]["enabled"],
+        settings.meaning.enabled.into(),
+    );
+    set(
+        &mut doc["meaning"]["model"],
+        settings.meaning.model.as_str().into(),
+    );
     set(&mut doc["updates"]["check"], settings.updates.check.into());
 
     // Only plugins that differ from their defaults get a table.
@@ -597,6 +633,10 @@ text_kb = 64        # how much of each file's text is searched, 1 to 16384
 # [index.kinds]
 # sheet = "name"
 # code = "text"
+
+[meaning]
+enabled = false     # search by meaning too; downloads the model the first time
+model = "multilingual"  # "multilingual", "english", "bge-small-en" or "multilingual-e5-small"
 
 [updates]
 check = true        # look for new versions of Sonar on GitHub

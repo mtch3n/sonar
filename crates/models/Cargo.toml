@@ -1,6 +1,6 @@
 [package]
-name = "sonar-settings"
-description = "Sonar's settings.toml, shared by the app and the command line"
+name = "sonar-models"
+description = "The models Sonar runs to search by meaning"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,14 +11,15 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+anyhow.workspace = true
+fastembed.workspace = true
+hf-hub.workspace = true
+memmap2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-shell-words.workspace = true
 sonar-core.workspace = true
-sonar-models.workspace = true
-sonar-plugins.workspace = true
-toml.workspace = true
-toml_edit.workspace = true
+tokenizers.workspace = true
 
 [dev-dependencies]
+anyhow.workspace = true
 tempfile.workspace = true

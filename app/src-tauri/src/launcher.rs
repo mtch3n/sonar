@@ -20,6 +20,8 @@ use sonar_plugins::{
     strip_keyword,
 };
 use sonar_settings::{Settings, Theme};
+
+use crate::meaning::QueryModel;
 use tauri::{AppHandle, State, ipc::Channel};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
@@ -41,6 +43,8 @@ pub struct Launcher {
     session: RwLock<Arc<Session>>,
     results: Mutex<Results>,
     indexing: AtomicBool,
+    /// The model to search by meaning with, once it's ready.
+    query_model: QueryModel,
     /// Problems with the settings, plugins or shortcut, shown when the bar opens.
     notices: Mutex<Vec<String>>,
 }
@@ -175,6 +179,7 @@ impl Launcher {
             session: RwLock::new(Arc::new(Session::empty())),
             results: Mutex::default(),
             indexing: AtomicBool::new(true),
+            query_model: QueryModel::default(),
             notices: Mutex::default(),
             paths,
         };
@@ -193,6 +198,10 @@ impl Launcher {
 
     pub fn current_settings(&self) -> Settings {
         read(&self.settings).clone()
+    }
+
+    pub fn query_model(&self) -> QueryModel {
+        self.query_model.clone()
     }
 
     pub fn set_indexing(&self, indexing: bool) {
@@ -361,7 +370,13 @@ impl Launcher {
             Err(err) => return failed("files", "Files", 20, err.to_string()),
         };
         query.limit.get_or_insert(read(&self.settings).search.limit);
-        let hits = lock(&self.index).search(&query);
+        let meaning = read(&self.settings).meaning.enabled;
+        let mut model = lock(&self.query_model);
+        let hits = match model.as_deref_mut() {
+            Some(model) if meaning => lock(&self.index).search_with(&query, model),
+            _ => lock(&self.index).search(&query),
+        };
+        drop(model);
         match hits {
             Ok(hits) => {
                 let now = jiff::Timestamp::now().as_second();

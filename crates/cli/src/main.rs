@@ -7,6 +7,7 @@ use std::{
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use sonar_core::{Hit, Index, Paths, Query, Rules};
+use sonar_models::Load;
 use sonar_settings::Settings;
 
 #[derive(Parser)]
@@ -52,8 +53,8 @@ fn main() -> Result<()> {
             run_index(&mut index, &paths)
         }
         Command::Search { query } => {
-            let (paths, index) = open()?;
-            run_search(&index, &paths, &query.join(" "))
+            let (paths, mut index) = open()?;
+            run_search(&mut index, &paths, &query.join(" "))
         }
         Command::Update => run_update(),
     }
@@ -110,15 +111,72 @@ fn run_index(index: &mut Index, paths: &Paths) -> Result<()> {
         "Skipped paths are listed in {}",
         tilde(&paths.rules.to_string_lossy(), &paths.home)
     );
+    if settings.meaning.enabled {
+        embed(index, paths, &settings.meaning.model)?;
+    }
     Ok(())
 }
 
-fn run_search(index: &Index, paths: &Paths, input: &str) -> Result<()> {
+/// Embeds what the scan found for searching by meaning, downloading the model the
+/// first time.
+fn embed(index: &mut Index, paths: &Paths, model: &str) -> Result<()> {
+    if !sonar_models::is_downloaded(model, &paths.models)
+        && let Some(info) = sonar_models::info(model)
+    {
+        println!(
+            "Downloading the {} model ({} MB)…",
+            info.name, info.download_mb
+        );
+    }
+    let load = Load {
+        download: true,
+        threads: std::thread::available_parallelism().map_or(4, |n| n.get()),
+    };
+    let mut embedder = sonar_models::load(model, &paths.models, load)?;
+    let (names, files) = index.pending_meaning(embedder.id())?;
+    let started = Instant::now();
+    let tty = std::io::stderr().is_terminal();
+    let stats = index.embed(embedder.as_mut(), &mut |stats| {
+        if tty {
+            eprint!(
+                "\rLearning meaning: {} of {}",
+                stats.names + stats.files,
+                names + files
+            );
+        }
+        true
+    })?;
+    if tty && names + files > 0 {
+        eprintln!();
+    }
+    println!(
+        "Learned the meaning of {} names and {} files ({} pieces of text) in {:.1}s",
+        stats.names,
+        stats.files,
+        stats.chunks,
+        started.elapsed().as_secs_f64()
+    );
+    Ok(())
+}
+
+fn run_search(index: &mut Index, paths: &Paths, input: &str) -> Result<()> {
     if index.is_empty()? {
         bail!("the index is empty; run `sonar index` first");
     }
     let query = Query::parse(input, &paths.home)?;
-    let hits = index.search(&query)?;
+    let meaning = Settings::load(&paths.settings).unwrap_or_default().meaning;
+    let load = Load {
+        download: false,
+        threads: 2,
+    };
+    let embedder = meaning
+        .enabled
+        .then(|| sonar_models::load(&meaning.model, &paths.models, load).ok())
+        .flatten();
+    let hits = match embedder {
+        Some(mut embedder) => index.search_with(&query, embedder.as_mut())?,
+        None => index.search(&query)?,
+    };
     if hits.is_empty() {
         println!("No matches");
         return Ok(());

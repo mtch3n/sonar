@@ -53,6 +53,21 @@ Words of three letters or more also match the text inside files outside code pro
 
 A folder with `.git`, `Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod` or similar counts as a project. It shows up as one result, and the files inside only appear when you use `kind:`, `ext:` or `in:`.
 
+### Search by meaning
+
+Turn on Search by meaning in Settings, or `meaning.enabled` in the settings file, and Sonar also finds files by what they're about: `tenancy agreement for the apartment` finds a lease that never uses those words, and `script that backs up my photos` finds the one that runs rsync on `~/Pictures`. The result shows the passage that matched. Files found by their words and by their meaning are ranked together, and every filter applies to both.
+
+The model runs on your computer and is downloaded from Hugging Face the first time, into Sonar's data folder; nothing else leaves your computer. Sonar then works through what it has indexed in the background, and the tray menu shows how far it's got. Names of files set to `meaning` under [What gets indexed](#what-gets-indexed) are searched by meaning too, and so is the text of documents, PDFs, slides and scripts. A query needs four letters, or two Chinese, Japanese or Korean characters, to be searched by meaning, and exact `"..."` and `name:` searches match words only.
+
+| `meaning.model` | Languages | Download | Speed |
+|---|---|---|---|
+| `multilingual` (default) | over 100, including Chinese | 530 MB | thousands of passages a second |
+| `english` | English | 131 MB | thousands of passages a second |
+| `bge-small-en` | English | 67 MB | about 30 passages a second, better with whole sentences |
+| `multilingual-e5-small` | about 100 | 470 MB | about 30 passages a second, better with whole sentences |
+
+The first two are [Model2Vec](https://github.com/MinishLab/model2vec) static models, which read about 14,000 passages from a typical home folder in five seconds; the others are transformers run with ONNX Runtime, which take a few minutes for the same and understand sentences better. Changing the model learns everything again with the new one.
+
 ## Calculator
 
 Type arithmetic or a unit conversion, like `2^10`, `sqrt 2` or `5 km to miles`, and the answer shows above your files. Enter copies it. Sonar only does arithmetic when the query has a digit and doesn't look like a date, so file searches such as `invoice 2024` are left alone. The calculator is [fend](https://github.com/printfn/fend).
@@ -129,6 +144,8 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `index.rescan_minutes` | `5` | how often to rescan everything, for changes the watch missed |
 | `index.text_kb` | `64` | how much of each file's text is searched, 1 to 16384; changing it reads every file again |
 | `index.kinds` | | how much of each kind of file is indexed; see [What gets indexed](#what-gets-indexed) |
+| `meaning.enabled` | `false` | search by meaning too; see [Search by meaning](#search-by-meaning) |
+| `meaning.model` | `multilingual` | the model that does it: `multilingual`, `english`, `bge-small-en` or `multilingual-e5-small` |
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
 | `plugins.calculator.currency` | your region's | the currency amounts like `100 usd` are shown in, like `"EUR"` |
@@ -154,9 +171,9 @@ How much of each kind of file is indexed is up to you, under What's indexed in S
 
 Sonar remembers what it read from each file by a hash of its content, in `cache.db` next to the index, so a file that's moved, copied, touched or restored isn't read again, and neither is anything after the index is rebuilt. What no file has needed for 30 days is dropped. It also opens a file's first four bytes when it needs to tell a script from a program or a Keynote deck from a key file, and reads your browsers' bookmarks and history when you search. The index never leaves your computer.
 
-Sonar itself only goes online to check GitHub for updates, to download exchange rates once a day (turn off Download exchange rates under the calculator in Settings to stop that) and, when you type `plugins`, to list and download plugins.
+Sonar itself only goes online to check GitHub for updates, to download the model that searches by meaning when you turn that on, to download exchange rates once a day (turn off Download exchange rates under the calculator in Settings to stop that) and, when you type `plugins`, to list and download plugins.
 
-The app watches the folders it indexes and picks up new, renamed, changed and deleted files a second or so after they settle; a folder that never stops changing is rescanned at least every ten seconds. On Linux it watches each indexed folder, so a home with more folders than `fs.inotify.max_user_watches` allows stops watching and says so on the terminal. Either way it also rescans everything every five minutes, or as often as `index.rescan_minutes` says, to catch anything the watch missed. To rescan now, use Reindex now in the tray menu or run `sonar index`.
+The app watches the folders it indexes and picks up new, renamed, changed and deleted files a second or so after they settle; a folder that never stops changing is rescanned at least every ten seconds. On Linux it watches each indexed folder, so a home with more folders than `fs.inotify.max_user_watches` allows stops watching and says so on the terminal. Either way it also rescans everything every five minutes, or as often as `index.rescan_minutes` says, to catch anything the watch missed. To rescan now, use Reindex now in the tray menu or run `sonar index`, which also learns the meaning of what it found when searching by meaning is on.
 
 ## Updates
 
