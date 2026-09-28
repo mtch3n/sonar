@@ -73,7 +73,7 @@ Sonar reads the browsers' own files, so it needs no extension, and nothing is se
 
 ## Plugins
 
-Plugins add results of their own. The calculator and the browser search are two: they ship with Sonar and run as plugins, so they can be turned off or given a keyword in Settings like any other. Most plugins start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
+Plugins add results of their own. Sonar ships with four, which can be turned off or given another keyword in Settings like any other plugin: the calculator and the browser search, System (type `lock`, `sleep`, `restart`, `shut down`, `log out` or `empty trash`; restarting, shutting down and logging out ask for a second Enter first) and Processes (`kill chrome` lists matching programs by memory; Enter ends one, Ctrl + Enter forces it). Most plugins start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
 
 Type `plugins` and a space to see what's installed and what the marketplaces offer. Enter installs or updates the selected plugin, and Ctrl + Enter removes it. Type `plugins` and a GitHub repository, like `plugins alice/sonar-emoji` or a github.com link, to add it: a repository with a single plugin is installed, and a marketplace is added to your list. Plugins… in the tray menu opens the same list.
 
