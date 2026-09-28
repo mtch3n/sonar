@@ -5,6 +5,7 @@ mod host;
 mod hotkey;
 mod indexer;
 mod launcher;
+mod rates;
 mod settings;
 mod tray;
 mod updater;
@@ -17,6 +18,7 @@ use crate::{
     hotkey::Hotkey,
     indexer::{Indexer, Status},
     launcher::Launcher,
+    rates::RateKeeper,
     tray::Tray,
 };
 
@@ -49,6 +51,7 @@ fn main() {
             let paths = Paths::from_env()?;
             let launcher = Launcher::open(paths.clone())?;
             let settings = launcher.settings();
+            let rates = launcher.rates();
             app.manage(launcher);
             app.manage(Hotkey::default());
             if let Err(err) = hotkey::setup(app) {
@@ -56,6 +59,16 @@ fn main() {
             }
             let tray = tray::create(app.handle())?;
             app.manage(tray.clone());
+
+            let download_rates = {
+                let settings = settings.clone();
+                move || settings.read().is_ok_and(|s| s.downloads_rates())
+            };
+            app.manage(RateKeeper::start(
+                paths.rates.clone(),
+                rates,
+                download_rates,
+            ));
 
             let handle = app.handle().clone();
             let rescan_every = move || {
@@ -106,6 +119,9 @@ fn reload(app: &AppHandle) {
         return;
     };
     launcher.reload();
+    if let Some(keeper) = app.try_state::<RateKeeper>() {
+        keeper.check();
+    }
     let shortcut = launcher.current_settings().shortcut();
     if let Err(err) = hotkey::apply(app, &shortcut) {
         launcher.add_notice(err);

@@ -55,6 +55,8 @@ A folder with `.git`, `Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod` o
 
 Type arithmetic or a unit conversion, like `2^10`, `sqrt 2` or `5 km to miles`, and the answer shows above your files. Enter copies it. Sonar only calculates when the query has a digit and doesn't look like a date, so file searches such as `invoice 2024` are left alone. The calculator is [fend](https://github.com/printfn/fend).
 
+It converts currencies too: `100 usd to eur`, `$20 in yen`. Money without a target, like `100 usd` or `10 eur + 5 usd`, is shown in your own currency, which Sonar takes from your system's region and you can change in Settings. Ctrl + Enter copies just the number. Exchange rates come from [ExchangeRate-API](https://www.exchangerate-api.com) once a day and are kept for when you're offline; turn off Download exchange rates under the calculator in Settings to stop that.
+
 ## Plugins
 
 Plugins add results of their own. Most start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
@@ -87,6 +89,8 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `index.rescan_minutes` | `5` | how often to look for new and changed files |
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
+| `plugins.calculator.currency` | your region's | the currency amounts like `100 usd` are shown in, like `"EUR"` |
+| `plugins.calculator.rates` | `true` | download exchange rates once a day |
 | `plugins.<id>.keyword` | the plugin's own | another keyword for a plugin |
 | `plugins.<id>.<setting>` | the plugin's own | a plugin's own settings, like `first = "duckduckgo"` for Web search. The Settings window lists them under each plugin |
 

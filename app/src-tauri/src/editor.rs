@@ -60,13 +60,13 @@ pub struct PluginInfo {
 /// The calculator and every installed plugin, on or off.
 fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
     let mut plugins = vec![PluginInfo {
-        id: "calculator".into(),
+        id: sonar_plugins::calculator::ID.into(),
         name: "Calculator".into(),
-        description: Some("Arithmetic and unit conversions, built in".into()),
+        description: Some("Arithmetic, units and currencies, built in".into()),
         keyword: None,
         image: None,
         icon: "calculator",
-        settings: Vec::new(),
+        settings: sonar_plugins::calculator::settings(),
     }];
     plugins.extend(launcher.installed().into_iter().map(|manifest| PluginInfo {
         id: manifest.id,
