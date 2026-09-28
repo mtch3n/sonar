@@ -88,6 +88,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
 | `plugins.<id>.keyword` | the plugin's own | another keyword for a plugin |
+| `plugins.<id>.<setting>` | the plugin's own | a plugin's own settings, like `first = "duckduckgo"` for Web search. The Settings window lists them under each plugin |
 
 ## What gets indexed
 

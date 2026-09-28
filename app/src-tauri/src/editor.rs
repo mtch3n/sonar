@@ -1,6 +1,7 @@
 //! The Settings window: a form over `settings.toml`.
 
 use serde::Serialize;
+use sonar_plugins::Setting;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 use crate::{
@@ -52,11 +53,12 @@ pub struct PluginInfo {
     keyword: Option<String>,
     image: Option<String>,
     icon: &'static str,
+    /// What the Settings window draws a form for.
+    settings: Vec<Setting>,
 }
 
-#[tauri::command]
-pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
-    let path = &launcher.paths().settings;
+/// The calculator and every installed plugin, on or off.
+fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
     let mut plugins = vec![PluginInfo {
         id: "calculator".into(),
         name: "Calculator".into(),
@@ -64,6 +66,7 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
         keyword: None,
         image: None,
         icon: "calculator",
+        settings: Vec::new(),
     }];
     plugins.extend(launcher.installed().into_iter().map(|manifest| PluginInfo {
         id: manifest.id,
@@ -72,10 +75,17 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
         keyword: manifest.keyword,
         image: manifest.icon,
         icon: "plugin",
+        settings: manifest.settings,
     }));
+    plugins
+}
+
+#[tauri::command]
+pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
+    let path = &launcher.paths().settings;
     Editor {
         settings: launcher.current_settings(),
-        plugins,
+        plugins: plugins(&launcher),
         path: path.display().to_string(),
         problem: Settings::load(path).err(),
     }
@@ -87,6 +97,13 @@ pub fn settings_save(
     launcher: State<'_, Launcher>,
     settings: Settings,
 ) -> Result<(), String> {
+    for plugin in plugins(&launcher) {
+        let values = settings.plugin(&plugin.id).values;
+        let (_, problems) = sonar_plugins::resolve(&plugin.settings, &values);
+        if let Some(problem) = problems.first() {
+            return Err(format!("{}: {problem}", plugin.name));
+        }
+    }
     settings::save(&launcher.paths().settings, &settings)?;
     crate::reload(&app);
     let _ = app.emit("sonar://view", ());

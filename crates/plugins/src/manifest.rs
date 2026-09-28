@@ -6,6 +6,8 @@ use std::{
 use base64::Engine;
 use serde::Deserialize;
 
+use crate::setting::{self, Setting};
+
 pub const FILE: &str = "plugin.toml";
 
 /// Icons are inlined into the search window, so they stay small.
@@ -23,6 +25,7 @@ pub struct Manifest {
     pub keyword: Option<String>,
     /// The icon as a `data:` URL.
     pub icon: Option<String>,
+    pub settings: Vec<Setting>,
 }
 
 #[derive(Deserialize)]
@@ -33,6 +36,8 @@ struct Raw {
     command: Vec<String>,
     keyword: Option<String>,
     icon: Option<PathBuf>,
+    #[serde(default)]
+    settings: Vec<setting::Raw>,
 }
 
 /// Every plugin in `dir`, one per folder, sorted by id, and a message for each
@@ -69,6 +74,7 @@ impl Manifest {
             check_keyword(keyword)?;
         }
         let icon = raw.icon.map(|icon| data_url(&dir.join(icon))).transpose()?;
+        let settings = Setting::from_raw(raw.settings)?;
         Ok(Manifest {
             id: dir
                 .file_name()
@@ -80,6 +86,7 @@ impl Manifest {
             command: raw.command,
             keyword: raw.keyword,
             icon,
+            settings,
         })
     }
 
@@ -174,6 +181,15 @@ mod tests {
         );
         assert_eq!(web.program(), PathBuf::from("python3"));
         assert_eq!(manifests[0].program(), root.join("clock").join("bin/clock"));
+    }
+
+    #[test]
+    fn the_bundled_plugins_read() {
+        let bundled = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugins");
+        let (manifests, problems) = discover(&bundled);
+        assert!(problems.is_empty(), "{problems:?}");
+        let web = manifests.iter().find(|m| m.id == "web-search").unwrap();
+        assert_eq!(web.settings[0].key, "first");
     }
 
     #[test]

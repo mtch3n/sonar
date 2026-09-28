@@ -53,11 +53,15 @@ pub struct Updates {
     pub check: bool,
 }
 
+/// `[plugins.<id>]`. Unknown keys aren't mistakes here: they are the plugin's own
+/// settings, checked against what the plugin declares once it is loaded.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct PluginSettings {
     pub enabled: bool,
     pub keyword: Option<String>,
+    #[serde(flatten)]
+    pub values: serde_json::Map<String, serde_json::Value>,
 }
 
 #[cfg(target_os = "linux")]
@@ -117,6 +121,7 @@ impl Default for PluginSettings {
         PluginSettings {
             enabled: true,
             keyword: None,
+            values: serde_json::Map::new(),
         }
     }
 }
@@ -271,6 +276,22 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
         }
         if let Some(keyword) = &plugin.keyword {
             table["keyword"] = value(keyword.as_str());
+        }
+        for (key, setting) in &plugin.values {
+            let setting = match setting {
+                serde_json::Value::String(text) => value(text.as_str()),
+                serde_json::Value::Bool(on) => value(*on),
+                serde_json::Value::Number(n) => match n.as_i64() {
+                    Some(n) => value(n),
+                    None => value(n.as_f64().unwrap_or_default()),
+                },
+                _ => {
+                    return Err(format!(
+                        "plugins.{id}.{key} must be text, a number or true/false"
+                    ));
+                }
+            };
+            table[key.as_str()] = setting;
         }
         plugins.insert(id, Item::Table(table));
     }
@@ -435,13 +456,14 @@ rescan_minutes = 5  # how often to look for new and changed files
 [updates]
 check = true        # look for new versions of Sonar on GitHub
 
-# Turn a plugin off, or give it another keyword:
+# Turn a plugin off, give it another keyword, or change its own settings:
 #
 # [plugins.calculator]
 # enabled = false
 #
 # [plugins.web-search]
 # keyword = "w"
+# first = "duckduckgo"
 "##
     )
 }
@@ -497,14 +519,18 @@ mod tests {
             "calculator".into(),
             PluginSettings {
                 enabled: false,
-                keyword: None,
+                ..PluginSettings::default()
             },
         );
         settings.plugins.insert(
             "web-search".into(),
             PluginSettings {
-                enabled: true,
                 keyword: Some("w".into()),
+                values: serde_json::json!({"first": "ddg", "results": 5, "safe": false})
+                    .as_object()
+                    .unwrap()
+                    .clone(),
+                ..PluginSettings::default()
             },
         );
         settings
@@ -515,6 +541,8 @@ mod tests {
         assert!(text.contains("# color of the selection"), "{text}");
         assert!(text.contains("theme = \"dark\"    # \"system\""), "{text}");
         assert!(text.contains("[plugins.web-search]"), "{text}");
+        assert!(text.contains("first = \"ddg\""), "{text}");
+        assert!(text.contains("results = 5\n"), "{text}");
         let mut expected = settings.clone();
         expected.plugins.remove("same");
         assert_eq!(Settings::parse(&text).unwrap(), expected);

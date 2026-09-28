@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { TriangleAlert, X } from "lucide-react";
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import { ChevronRight, TriangleAlert, X } from "lucide-react";
+import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 import { Glyph } from "./icons";
 import { applyLook } from "./look";
-import type { Editor, PluginSettings, Settings as Values } from "./types";
+import type { Editor, PluginSettings, Setting, SettingValue, Settings as Values } from "./types";
 import "./styles.css";
 import "./settings.css";
 
@@ -15,6 +15,7 @@ export default function Settings() {
   const [saved, setSaved] = useState<Values | null>(null);
   const [status, setStatus] = useState<{ text: string; error: boolean } | null>(null);
   const [market, setMarket] = useState("");
+  const [expanded, setExpanded] = useState<string[]>([]);
 
   useEffect(() => {
     invoke<Editor>("settings_get").then((loaded) => {
@@ -37,10 +38,17 @@ export default function Settings() {
   };
   const appearance = (patch: Partial<Values["appearance"]>) =>
     change({ ...draft, appearance: { ...draft.appearance, ...patch } });
-  const plugin = (id: string, patch: Partial<PluginSettings>) => {
-    const current = draft.plugins[id] ?? { enabled: true, keyword: null };
-    change({ ...draft, plugins: { ...draft.plugins, [id]: { ...current, ...patch } } });
+  const own = (id: string): PluginSettings => draft.plugins[id] ?? { enabled: true, keyword: null };
+  const plugin = (id: string, patch: { enabled?: boolean; keyword?: string | null }) =>
+    change({ ...draft, plugins: { ...draft.plugins, [id]: { ...own(id), ...patch } } });
+  // A value back at its default is left out, so settings.toml only holds what was changed.
+  const setValue = (id: string, setting: Setting, value: SettingValue) => {
+    const { [setting.key]: _, ...rest } = own(id);
+    const next = value === setting.default ? rest : { ...rest, [setting.key]: value };
+    change({ ...draft, plugins: { ...draft.plugins, [id]: next as PluginSettings } });
   };
+  const toggleExpanded = (id: string) =>
+    setExpanded(expanded.includes(id) ? expanded.filter((open) => open !== id) : [...expanded, id]);
 
   async function save() {
     if (!draft) return;
@@ -137,28 +145,58 @@ export default function Settings() {
 
         <Group title="Plugins" note="Type plugins and a space in the search bar to install more.">
           {editor.plugins.map((info) => {
-            const own = draft.plugins[info.id] ?? { enabled: true, keyword: null };
+            const values = own(info.id);
+            const open = expanded.includes(info.id);
             return (
-              <div key={info.id} className="item">
-                <Glyph icon={info.icon} image={info.image} />
-                <span className="item-text">
-                  <span className="item-title">{info.name}</span>
-                  {info.description && <span className="item-hint">{info.description}</span>}
-                </span>
-                <input
-                  className="text keyword"
-                  value={own.keyword ?? ""}
-                  placeholder={info.keyword ?? "No keyword"}
-                  onChange={(e) => plugin(info.id, { keyword: e.target.value.trim() || null })}
-                  aria-label={`Keyword for ${info.name}`}
-                  spellCheck={false}
-                />
-                <Toggle
-                  label={`Use ${info.name}`}
-                  on={own.enabled}
-                  onChange={(enabled) => plugin(info.id, { enabled })}
-                />
-              </div>
+              <Fragment key={info.id}>
+                <div className="item">
+                  <Glyph icon={info.icon} image={info.image} />
+                  <span className="item-text">
+                    <span className="item-title">{info.name}</span>
+                    {info.description && <span className="item-hint">{info.description}</span>}
+                  </span>
+                  <input
+                    className="text keyword"
+                    value={values.keyword ?? ""}
+                    placeholder={info.keyword ?? "No keyword"}
+                    onChange={(e) => plugin(info.id, { keyword: e.target.value.trim() || null })}
+                    aria-label={`Keyword for ${info.name}`}
+                    spellCheck={false}
+                  />
+                  <Toggle
+                    label={`Use ${info.name}`}
+                    on={values.enabled}
+                    onChange={(enabled) => plugin(info.id, { enabled })}
+                  />
+                  {info.settings.length > 0 ? (
+                    <button
+                      type="button"
+                      className="icon-button disclosure"
+                      aria-expanded={open}
+                      aria-controls={`settings-${info.id}`}
+                      aria-label={`${info.name} settings`}
+                      onClick={() => toggleExpanded(info.id)}
+                    >
+                      <ChevronRight size={16} strokeWidth={2} aria-hidden />
+                    </button>
+                  ) : (
+                    <span className="disclosure-space" />
+                  )}
+                </div>
+                {open && (
+                  <div id={`settings-${info.id}`} className="nested" aria-label={`${info.name} settings`}>
+                    {info.settings.map((setting) => (
+                      <Row key={setting.key} label={setting.title} hint={hint(setting)}>
+                        <SettingField
+                          setting={setting}
+                          value={values[setting.key] ?? setting.default}
+                          onChange={(value) => setValue(info.id, setting, value)}
+                        />
+                      </Row>
+                    ))}
+                  </div>
+                )}
+              </Fragment>
             );
           })}
         </Group>
@@ -235,13 +273,80 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   );
 }
 
-function NumberField({ value, unit, onChange }: { value: number; unit?: string; onChange: (n: number) => void }) {
+/** The field for a setting a plugin declares. */
+function SettingField({
+  setting,
+  value,
+  onChange,
+}: {
+  setting: Setting;
+  value: SettingValue;
+  onChange: (value: SettingValue) => void;
+}) {
+  switch (setting.type) {
+    case "text":
+      return (
+        <input
+          className="text field"
+          value={String(value)}
+          placeholder={setting.placeholder ?? ""}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={setting.title}
+          spellCheck={false}
+        />
+      );
+    case "number":
+      return <NumberField value={Number(value)} label={setting.title} onChange={onChange} />;
+    case "toggle":
+      return <Toggle label={setting.title} on={value === true} onChange={onChange} />;
+    case "choice":
+      return (
+        <select
+          className="text field"
+          value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label={setting.title}
+        >
+          {setting.options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.title}
+            </option>
+          ))}
+        </select>
+      );
+  }
+}
+
+/** A setting's description, and for numbers the range they may take. */
+function hint(setting: Setting): string | undefined {
+  const parts = [setting.description];
+  if (setting.type === "number") {
+    const { min, max } = setting;
+    if (min !== null && max !== null) parts.push(`${min} to ${max}`);
+    else if (min !== null) parts.push(`${min} or more`);
+    else if (max !== null) parts.push(`${max} or less`);
+  }
+  return parts.filter(Boolean).join(" · ") || undefined;
+}
+
+function NumberField({
+  value,
+  unit,
+  label,
+  onChange,
+}: {
+  value: number;
+  unit?: string;
+  label?: string;
+  onChange: (n: number) => void;
+}) {
   return (
     <span className="number">
       <input
         className="text short"
         type="number"
         value={value}
+        aria-label={label}
         onChange={(e) => onChange(Number(e.target.value))}
       />
       <span className="unit">{unit}</span>

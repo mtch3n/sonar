@@ -612,6 +612,13 @@ impl Session {
                 disabled.push(manifest);
                 continue;
             }
+            let (values, problems) = sonar_plugins::resolve(&manifest.settings, &config.values);
+            notices.extend(problems.into_iter().map(|problem| {
+                format!(
+                    "Plugin {}: {problem}; fix it under [plugins.{}] in settings.toml",
+                    manifest.name, manifest.id
+                )
+            }));
             let keyword = config.keyword.or_else(|| manifest.keyword.clone());
             if let Some(keyword) = &keyword {
                 if keywords.contains(keyword) {
@@ -625,7 +632,12 @@ impl Session {
                 keywords.push(keyword.clone());
             }
             plugins.push(Plugin {
-                external: Arc::new(External::new(manifest, host::prepare_plugin, ANSWER_WITHIN)),
+                external: Arc::new(External::new(
+                    manifest,
+                    values,
+                    host::prepare_plugin,
+                    ANSWER_WITHIN,
+                )),
                 keyword,
             });
         }
