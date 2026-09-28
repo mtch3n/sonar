@@ -7,7 +7,7 @@ use std::{fs, path::Path};
 use serde::Serialize;
 use sonar_plugins::{
     Setting, apps, browser, calculator, clipboard, describe, dns, fingerprint, ports, processes,
-    services, system, windows,
+    services, system, top, windows,
 };
 
 struct Bundled {
@@ -96,6 +96,18 @@ const BUNDLED: &[Bundled] = &[
         icon: include_str!("../icons/plugins/processes.svg"),
         settings: processes::settings,
         serve: Some(processes::serve),
+        process: None,
+    },
+    Bundled {
+        id: top::ID,
+        name: "Top",
+        description: "What the computer is busy with: CPU and memory of running programs, as a tree",
+        keyword: Some(top::KEYWORD),
+        position: "bottom",
+        platforms: &[],
+        icon: include_str!("../icons/plugins/top.svg"),
+        settings: top::settings,
+        serve: Some(top::serve),
         process: None,
     },
     Bundled {
@@ -313,6 +325,7 @@ mod tests {
             "processes",
             "services",
             "system",
+            "top",
             "windows",
         ]
         .into_iter()
