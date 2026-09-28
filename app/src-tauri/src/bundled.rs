@@ -5,12 +5,13 @@
 use std::{fs, path::Path};
 
 use serde::Serialize;
-use sonar_plugins::{Setting, browser, calculator};
+use sonar_plugins::{Setting, browser, calculator, processes, system};
 
 struct Bundled {
     id: &'static str,
     name: &'static str,
     description: &'static str,
+    keyword: Option<&'static str>,
     /// Where results go when the plugin has no keyword: `top` or `bottom`.
     position: &'static str,
     icon: &'static str,
@@ -24,6 +25,7 @@ const BUNDLED: &[Bundled] = &[
         id: calculator::ID,
         name: "Calculator",
         description: "Arithmetic, units, currencies, time zones and dates",
+        keyword: None,
         position: "top",
         icon: include_str!("../icons/plugins/calculator.svg"),
         settings: calculator::settings,
@@ -33,10 +35,31 @@ const BUNDLED: &[Bundled] = &[
         id: browser::ID,
         name: "Browser",
         description: "Bookmarks and history from Chrome, Edge, Brave and other Chromium browsers",
+        keyword: None,
         position: "top",
         icon: include_str!("../icons/plugins/browser.svg"),
         settings: browser::settings,
         serve: browser::serve,
+    },
+    Bundled {
+        id: system::ID,
+        name: "System",
+        description: "Lock, sleep, restart, shut down, log out and empty the trash",
+        keyword: None,
+        position: "top",
+        icon: include_str!("../icons/plugins/system.svg"),
+        settings: system::settings,
+        serve: system::serve,
+    },
+    Bundled {
+        id: processes::ID,
+        name: "Processes",
+        description: "Find a running program and end it",
+        keyword: Some(processes::KEYWORD),
+        position: "bottom",
+        icon: include_str!("../icons/plugins/processes.svg"),
+        settings: processes::settings,
+        serve: processes::serve,
     },
 ];
 
@@ -53,6 +76,8 @@ pub fn serve(id: &str) -> bool {
 struct PluginFile<'a> {
     name: &'a str,
     description: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keyword: Option<&'a str>,
     command: Vec<String>,
     position: &'a str,
     icon: &'a str,
@@ -67,6 +92,7 @@ pub fn write(dir: &Path, program: &Path) -> Result<(), String> {
         let file = PluginFile {
             name: plugin.name,
             description: plugin.description,
+            keyword: plugin.keyword,
             command: vec![
                 program.to_string_lossy().into_owned(),
                 "--plugin".into(),
@@ -101,7 +127,8 @@ mod tests {
         let (manifests, problems) = sonar_plugins::discover(tmp.path());
         assert!(problems.is_empty(), "{problems:?}");
         let ids: Vec<&str> = manifests.iter().map(|m| m.id.as_str()).collect();
-        assert_eq!(ids, ["browser", "calculator"]);
+        assert_eq!(ids, ["browser", "calculator", "processes", "system"]);
+        assert_eq!(manifests[2].keyword.as_deref(), Some("kill"));
         let calculator = &manifests[1];
         assert_eq!(calculator.id, "calculator");
         assert_eq!(

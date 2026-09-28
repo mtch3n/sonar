@@ -8,8 +8,10 @@ mod clock;
 pub mod currency;
 mod external;
 mod manifest;
+pub mod processes;
 mod setting;
 pub mod store;
+pub mod system;
 
 use std::io::{BufRead, Write};
 

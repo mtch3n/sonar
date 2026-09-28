@@ -235,6 +235,15 @@ def check_search_window(driver: WebDriver):
     assert row["subtitle"] == "crates.io/crates/serde", row
     print("ok  Chrome bookmarks and history")
 
+    search(driver, "slee", lambda r: r["title"] == "Sleep", "the System plugin")
+    row = search(driver, "restart", lambda r: r["title"] == "Restart", "a command that asks first")
+    assert row["subtitle"].startswith("Press Enter, then Enter again"), row
+    print("ok  system commands, with restart asking first")
+
+    row = search(driver, "kill mutter", lambda r: r["title"] == "mutter", "the Processes plugin")
+    assert " · process " in row["subtitle"], row
+    print("ok  processes listed by the kill keyword")
+
 
 def check_live_index(driver: WebDriver, home: Path):
     """Files show up soon after they change, long before the five-minute rescan."""
