@@ -1,0 +1,23 @@
+[package]
+name = "sonar-settings"
+description = "Sonar's settings.toml, shared by the app and the command line"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+shell-words.workspace = true
+sonar-core.workspace = true
+sonar-plugins.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

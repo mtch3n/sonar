@@ -34,6 +34,30 @@ const DEFAULT_ACCENT = "#ff5a1f";
 /** The calculator's id, whose exchange rates Settings can update. */
 const CALCULATOR = "calculator";
 
+const KIND_NAMES: Record<string, string> = {
+  app: "Apps",
+  code: "Code in projects",
+  script: "Scripts",
+  key: "Keys and certificates",
+  pdf: "PDFs",
+  doc: "Documents and notes",
+  sheet: "Spreadsheets",
+  slides: "Slides",
+  image: "Images",
+  video: "Videos",
+  audio: "Audio",
+  archive: "Archives",
+  config: "Config files",
+  other: "Other files",
+};
+
+const LEVEL_NAMES: Record<string, string> = {
+  skip: "Not indexed",
+  name: "Name",
+  text: "Name and words",
+  meaning: "Words and meaning",
+};
+
 export default function Settings() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [draft, setDraft] = useState<Values | null>(null);
@@ -154,6 +178,16 @@ export default function Settings() {
                 onChange={(limit) => change({ ...draft, search: { limit } })}
               />
             </Row>
+            <Row label="Check for updates" hint="Look for new versions of Sonar on GitHub">
+              <Switch
+                aria-label="Check for updates"
+                checked={draft.updates.check}
+                onCheckedChange={(check) => change({ ...draft, updates: { check } })}
+              />
+            </Row>
+          </Group>
+
+          <Group title="Index">
             <Row label="Rescan everything every" hint="Changes show up within seconds; this catches any that slip by">
               <NumberField
                 label="Rescan every"
@@ -170,13 +204,11 @@ export default function Settings() {
                 onChange={(text_kb) => change({ ...draft, index: { ...draft.index, text_kb } })}
               />
             </Row>
-            <Row label="Check for updates" hint="Look for new versions of Sonar on GitHub">
-              <Switch
-                aria-label="Check for updates"
-                checked={draft.updates.check}
-                onCheckedChange={(check) => change({ ...draft, updates: { check } })}
-              />
-            </Row>
+            <KindLevels
+              kinds={editor.kinds}
+              values={draft.index.kinds}
+              onChange={(kinds) => change({ ...draft, index: { ...draft.index, kinds } })}
+            />
           </Group>
 
           <Group title="Files">
@@ -327,6 +359,51 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
 }
 
 /** A plugin: its keyword and switch, and its own settings folded under it. */
+/** The level of each kind of file, folded away until asked for. */
+function KindLevels({
+  kinds,
+  values,
+  onChange,
+}: {
+  kinds: Editor["kinds"];
+  values: Record<string, string>;
+  onChange: (values: Record<string, string>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Item size="sm" className="flex-nowrap">
+        <ItemContent className="min-w-0">
+          <ItemTitle>What's indexed</ItemTitle>
+          <ItemDescription>Name only, words inside, or meaning too, for each kind of file</ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <CollapsibleTrigger render={<Button variant="ghost" size="icon-sm" aria-label="What's indexed" />}>
+            <ChevronRight className={cn("transition-transform", open && "rotate-90")} />
+          </CollapsibleTrigger>
+        </ItemActions>
+      </Item>
+      <CollapsibleContent className="bg-muted/40 pl-9">
+        {kinds.map(({ kind, default: fallback, levels }) => (
+          <Row key={kind} label={KIND_NAMES[kind] ?? kind}>
+            <Choice
+              label={KIND_NAMES[kind] ?? kind}
+              value={values[kind] ?? fallback}
+              items={levels.map((level) => ({ value: level, label: LEVEL_NAMES[level] ?? level }))}
+              onChange={(level) => {
+                const next = { ...values };
+                if (level === fallback) delete next[kind];
+                else next[kind] = level;
+                onChange(next);
+              }}
+            />
+          </Row>
+        ))}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 function PluginRow({
   info,
   values,

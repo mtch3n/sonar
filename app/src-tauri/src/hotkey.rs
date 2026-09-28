@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Manager};
 
-use crate::settings::Shortcut;
+use sonar_settings::Shortcut;
 
 /// The shortcut Sonar last set up, so it is only set up again when it changes.
 #[derive(Default)]

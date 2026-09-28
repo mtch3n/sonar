@@ -20,7 +20,6 @@ notify.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sonar-apps.workspace = true
-shell-words.workspace = true
 sonar-core.workspace = true
 sonar-plugins.workspace = true
 tauri = { version = "2.11.6", features = ["tray-icon", "image-png", "macos-private-api"] }
@@ -30,7 +29,7 @@ tauri-plugin-single-instance.workspace = true
 tauri-plugin-updater.workspace = true
 tokio = { workspace = true, features = ["sync", "rt"] }
 toml.workspace = true
-toml_edit.workspace = true
+sonar-settings.workspace = true
 
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut.workspace = true

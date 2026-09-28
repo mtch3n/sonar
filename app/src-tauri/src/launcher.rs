@@ -19,16 +19,13 @@ use sonar_plugins::{
     store::{self, Found, Marketplace, Repo, Source},
     strip_keyword,
 };
+use sonar_settings::{Settings, Theme};
 use tauri::{AppHandle, State, ipc::Channel};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::{sync::OnceCell, task::JoinSet};
 
-use crate::{
-    bundled, host,
-    settings::{Settings, Theme},
-    window,
-};
+use crate::{bundled, host, window};
 
 /// Typing this and a space lists installed plugins and the marketplaces' plugins.
 const PLUGINS_KEYWORD: &str = "plugins";
@@ -261,7 +258,7 @@ impl Launcher {
         let settings = self.current_settings();
         View {
             theme: settings.appearance.theme,
-            accent: settings.appearance.accent_color(),
+            accent: settings.appearance.accent_color(crate::host::system_accent),
             width: settings.appearance.width,
             rows: settings.appearance.rows,
             indexing: self.indexing.load(Ordering::Relaxed),
@@ -593,7 +590,7 @@ impl Launcher {
             Command::Add(repo) => {
                 let notice = blocking(move || match store::probe(&repo)? {
                     Found::Marketplace(market) => {
-                        crate::settings::add_marketplace(&settings_path, &repo)?;
+                        sonar_settings::add_marketplace(&settings_path, &repo)?;
                         Ok(format!(
                             "Added the {} marketplace with {} plugins",
                             market.name,

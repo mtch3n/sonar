@@ -8,7 +8,6 @@ mod host;
 mod hotkey;
 mod indexer;
 mod launcher;
-mod settings;
 mod tray;
 mod updater;
 mod watcher;
@@ -167,7 +166,10 @@ fn clipboard_dir(paths: &Paths) -> std::path::PathBuf {
 /// Keeps what's copied for the clipboard plugin, while it's turned on. XWayland can
 /// stop and start again with the desktop, so the watch starts again when it ends.
 #[cfg(target_os = "linux")]
-fn record_copies(paths: &Paths, settings: &std::sync::Arc<std::sync::RwLock<settings::Settings>>) {
+fn record_copies(
+    paths: &Paths,
+    settings: &std::sync::Arc<std::sync::RwLock<sonar_settings::Settings>>,
+) {
     let dir = clipboard_dir(paths);
     let settings = settings.clone();
     std::thread::spawn(move || {
@@ -194,10 +196,10 @@ fn reload(app: &AppHandle) {
     let Some(launcher) = app.try_state::<Launcher>() else {
         return;
     };
-    let text_kb = launcher.current_settings().index.text_kb;
+    let scan = launcher.current_settings().index.scan_options();
     launcher.reload();
-    // Files are read again at once, rather than at the next rescan.
-    if launcher.current_settings().index.text_kb != text_kb
+    // Files are indexed again at once, rather than at the next rescan.
+    if launcher.current_settings().index.scan_options() != scan
         && let Some(indexer) = app.try_state::<Indexer>()
     {
         indexer.reindex();

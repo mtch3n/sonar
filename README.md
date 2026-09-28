@@ -128,6 +128,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `files.terminal` | empty | the terminal Ctrl + Enter opens folders and projects in, like `ptyxis` or `open -a iTerm`; empty uses the first one found. Settings lists the terminals it finds |
 | `index.rescan_minutes` | `5` | how often to rescan everything, for changes the watch missed |
 | `index.text_kb` | `64` | how much of each file's text is searched, 1 to 16384; changing it reads every file again |
+| `index.kinds` | | how much of each kind of file is indexed; see [What gets indexed](#what-gets-indexed) |
 | `updates.check` | `true` | look for new versions on GitHub |
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
 | `plugins.calculator.currency` | your region's | the currency amounts like `100 usd` are shown in, like `"EUR"` |
@@ -147,7 +148,11 @@ Your home folder, except hidden folders (`.ssh`, `.gnupg` and `.kube` are kept),
 - macOS: `~/Library/Application Support/sonar/ignore`
 - Windows: `%APPDATA%\sonar\ignore`
 
-Sonar records names, sizes and dates, and the first 64 KB of text (or `index.text_kb`) from plain-text files, PDFs, and Office and OpenDocument files outside code projects, for searching inside them; it never reads keys and certificates. It also opens a file's first four bytes when it needs to tell a script from a program or a Keynote deck from a key file, and reads your browsers' bookmarks and history when you search. The index never leaves your computer.
+Sonar records names, sizes and dates, and the first 64 KB of text (or `index.text_kb`) from plain-text files, PDFs, and Office and OpenDocument files outside code projects, for searching inside them; it never reads keys and certificates.
+
+How much of each kind of file is indexed is up to you, under What's indexed in Settings or `[index.kinds]` in the settings file. Each kind is left out (`skip`), found by its name (`name`), also searched for the words inside (`text`), or searched by meaning too (`meaning`). Documents, PDFs, slides and scripts are searched by meaning, spreadsheets and config files for words, and everything else by name. Setting `code = "text"` searches the code inside projects too.
+
+Sonar remembers what it read from each file by a hash of its content, in `cache.db` next to the index, so a file that's moved, copied, touched or restored isn't read again, and neither is anything after the index is rebuilt. What no file has needed for 30 days is dropped. It also opens a file's first four bytes when it needs to tell a script from a program or a Keynote deck from a key file, and reads your browsers' bookmarks and history when you search. The index never leaves your computer.
 
 Sonar itself only goes online to check GitHub for updates, to download exchange rates once a day (turn off Download exchange rates under the calculator in Settings to stop that) and, when you type `plugins`, to list and download plugins.
 

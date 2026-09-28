@@ -19,4 +19,4 @@ anyhow.workspace = true
 clap.workspace = true
 self_update.workspace = true
 sonar-core.workspace = true
-toml.workspace = true
+sonar-settings.workspace = true

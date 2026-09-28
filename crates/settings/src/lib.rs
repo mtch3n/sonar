@@ -4,6 +4,7 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
 use serde::{Deserialize, Serialize};
+use sonar_core::{Kind, Level, Levels, ScanOptions};
 use sonar_plugins::store::Repo;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -34,10 +35,10 @@ pub const SYSTEM_ACCENT: &str = "system";
 const DEFAULT_ACCENT: &str = "#ff5a1f";
 
 impl Appearance {
-    /// The accent as a color, with `system` looked up from the desktop.
-    pub fn accent_color(&self) -> String {
+    /// The accent as a color, with `system` looked up from the desktop by `system`.
+    pub fn accent_color(&self, system: impl FnOnce() -> Option<String>) -> String {
         if self.accent == SYSTEM_ACCENT {
-            crate::host::system_accent().unwrap_or_else(|| DEFAULT_ACCENT.to_owned())
+            system().unwrap_or_else(|| DEFAULT_ACCENT.to_owned())
         } else {
             self.accent.clone()
         }
@@ -75,6 +76,45 @@ pub struct Index {
     pub rescan_minutes: u64,
     /// How much of each file's text is searched, in KB.
     pub text_kb: u64,
+    /// The level of kinds that differ from their default, like `sheet = "name"`.
+    pub kinds: BTreeMap<String, String>,
+}
+
+impl Index {
+    /// What a scan keeps of each file. Assumes the settings were checked.
+    pub fn scan_options(&self) -> ScanOptions {
+        let mut levels = Levels::default();
+        for (kind, level) in &self.kinds {
+            if let (Some(kind), Some(level)) = (Kind::from_name(kind), Level::from_name(level)) {
+                levels.set(kind, level);
+            }
+        }
+        ScanOptions {
+            text_limit: self.text_kb as usize * 1024,
+            levels,
+        }
+    }
+
+    fn check(&self) -> Result<(), String> {
+        within("rescan_minutes", self.rescan_minutes, 1, 24 * 60)?;
+        within("text_kb", self.text_kb, 1, 16 * 1024)?;
+        for (kind, level) in &self.kinds {
+            let known = Kind::ALL.iter().any(|k| k.as_str() == kind);
+            if !known {
+                let kinds: Vec<&str> = Kind::ALL.iter().map(|k| k.as_str()).collect();
+                return Err(format!(
+                    "index.kinds: unknown kind `{kind}`; use one of: {}",
+                    kinds.join(", ")
+                ));
+            }
+            if Level::from_name(level).is_none() {
+                return Err(format!(
+                    "index.kinds.{kind} is `{level}`; use skip, name, text or meaning"
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -140,6 +180,7 @@ impl Default for Index {
         Index {
             rescan_minutes: 5,
             text_kb: (sonar_core::DEFAULT_TEXT_LIMIT / 1024) as u64,
+            kinds: BTreeMap::new(),
         }
     }
 }
@@ -207,8 +248,7 @@ impl Settings {
         within("limit", self.search.limit, 1, 500)?;
         self.editor()?;
         self.terminal()?;
-        within("rescan_minutes", self.index.rescan_minutes, 1, 24 * 60)?;
-        within("text_kb", self.index.text_kb, 1, 16 * 1024)?;
+        self.index.check()?;
         for (id, plugin) in &self.plugins {
             if let Some(keyword) = &plugin.keyword {
                 sonar_plugins::check_keyword(keyword)
@@ -331,6 +371,17 @@ fn write_into(text: &str, settings: &Settings) -> Result<String, String> {
         &mut doc["index"]["text_kb"],
         (settings.index.text_kb as i64).into(),
     );
+    let mut kinds = Table::new();
+    for (kind, level) in &settings.index.kinds {
+        kinds[kind.as_str()] = value(level.as_str());
+    }
+    if kinds.is_empty() {
+        if let Some(index) = doc["index"].as_table_mut() {
+            index.remove("kinds");
+        }
+    } else {
+        doc["index"]["kinds"] = Item::Table(kinds);
+    }
     set(&mut doc["updates"]["check"], settings.updates.check.into());
 
     // Only plugins that differ from their defaults get a table.
@@ -539,6 +590,14 @@ terminal = ""       # opens folders, like "ptyxis" or "open -a iTerm"; empty use
 rescan_minutes = 5  # how often to rescan everything, for changes the watch missed
 text_kb = 64        # how much of each file's text is searched, 1 to 16384
 
+# How much of each kind of file is indexed: "skip", "name", "text" or "meaning".
+# Documents, PDFs, slides and scripts are searched by meaning, spreadsheets and
+# config files for words, and everything else by name. Keys are never read.
+#
+# [index.kinds]
+# sheet = "name"
+# code = "text"
+
 [updates]
 check = true        # look for new versions of Sonar on GitHub
 
@@ -651,6 +710,34 @@ mod tests {
         assert_eq!(Settings::load(&path).unwrap(), Settings::default());
         let old = fs::read_to_string(path.with_extension("toml.bak")).unwrap();
         assert!(old.contains("widht"));
+    }
+
+    #[test]
+    fn kind_levels_are_checked_and_saved() {
+        let settings =
+            Settings::parse("[index.kinds]\nsheet = \"name\"\nkey = \"meaning\"\n").unwrap();
+        let levels = settings.index.scan_options().levels;
+        assert_eq!(levels.get(Kind::Sheet), Level::Name);
+        assert_eq!(levels.get(Kind::Key), Level::Name, "keys are never read");
+        assert_eq!(levels.get(Kind::Pdf), Level::Meaning);
+        for (text, says) in [
+            ("[index.kinds]\nmovie = \"skip\"", "unknown kind `movie`"),
+            ("[index.kinds]\nsheet = \"all\"", "index.kinds.sheet"),
+        ] {
+            let err = Settings::parse(text).unwrap_err();
+            assert!(err.contains(says), "{text}: {err}");
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("settings.toml");
+        fs::write(&path, template()).unwrap();
+        save(&path, &settings).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\n[index.kinds]\n"), "{text}");
+        assert_eq!(Settings::parse(&text).unwrap(), settings);
+        save(&path, &Settings::default()).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(!text.contains("\n[index.kinds]\n"), "{text}");
     }
 
     #[test]
