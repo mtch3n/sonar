@@ -22,6 +22,16 @@ description = "Search Google, DuckDuckGo or GitHub"
 keyword = "g"
 command = ["python3", "web_search.py"]
 icon = "icon.svg"
+
+[[settings]]
+key = "first"
+title = "Listed first"
+description = "The engine Enter searches"
+type = "choice"
+options = [
+    { value = "google", title = "Google" },
+    { value = "duckduckgo", title = "DuckDuckGo" },
+]
 ```
 
 | Key | Required | Meaning |
@@ -31,17 +41,42 @@ icon = "icon.svg"
 | `description` | no | one line for the plugin list |
 | `keyword` | no | one word. With a keyword, the plugin only gets queries that start with it and a space, and its results are the only ones shown. Without one, it gets every query and its results appear below the files |
 | `icon` | no | a PNG, SVG, JPEG or WebP file in the plugin folder, up to 256 KB |
+| `settings` | no | options people can change; see [Settings](#settings) |
 
 People can give your plugin another keyword, or turn it off, in their settings under `[plugins.<id>]`.
 
 Keywords are the better choice for most plugins. A plugin without one runs on every keystroke and should only answer when it's confident, returning no items otherwise.
 
+## Settings
+
+Each `[[settings]]` table declares one option. The Settings window lists them under your plugin, and Sonar keeps the values people choose in their `settings.toml`, next to the plugin's keyword:
+
+```toml
+[plugins.web-search]
+first = "duckduckgo"
+```
+
+| Key | Required | Meaning |
+|---|---|---|
+| `key` | yes | the name in `settings.toml` and in the queries Sonar sends: lowercase letters, digits, `-` and `_`, but not `enabled` or `keyword` |
+| `title` | yes | the label in the Settings window |
+| `type` | yes | `text`, `number`, `toggle` or `choice` |
+| `description` | no | a line under the label |
+| `default` | no | the value until someone changes it. Without one, text is empty, a number is its `min` or 0, a toggle is off, and a choice is its first option |
+| `placeholder` | no | for `text`: grey text shown while the field is empty |
+| `min`, `max` | no | for `number`: the lowest and highest value allowed |
+| `options` | for `choice` | a list of `{ value, title }`: `value` is what your plugin receives, `title` what people see |
+
+Sonar checks values against what you declare, so your program always gets every key with a value of the right type. A value that doesn't fit is replaced by the default, and the search bar tells the person what to fix. Changes apply the next time the search bar opens.
+
+Keep secrets such as API keys out of settings: `settings.toml` is often shared along with other dotfiles. Read them from an environment variable or your own file, or use a command-line tool that's already signed in, like `gh` for GitHub.
+
 ## The protocol
 
-Sonar writes one JSON object per line to your program's stdin. For a plugin with a keyword, `query` is the text after the keyword, which may be empty.
+Sonar writes one JSON object per line to your program's stdin. For a plugin with a keyword, `query` is the text after the keyword, which may be empty. `settings` holds the value of every setting you declare, and is empty when you declare none.
 
 ```json
-{"query": "rust traits"}
+{"query": "rust traits", "settings": {"first": "google"}}
 ```
 
 Your program answers each line with exactly one line of JSON on stdout, and flushes it:

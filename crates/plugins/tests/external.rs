@@ -2,13 +2,17 @@
 
 use std::{fs, os::unix::fs::PermissionsExt, path::Path, sync::Arc, time::Duration};
 
-use sonar_plugins::{Action, External, Manifest};
+use serde_json::Map;
+use sonar_plugins::{Action, External, Manifest, resolve};
 
 /// Echoes each query back as an item, except for a few that misbehave on purpose.
 const SCRIPT: &str = r#"#!/bin/sh
 while IFS= read -r line; do
-  q=$(printf '%s' "$line" | sed 's/^{"query":"\(.*\)"}$/\1/')
+  q=$(printf '%s' "$line" | sed 's/^{"query":"\([^"]*\)".*$/\1/')
   case "$q" in
+    greet)
+      g=$(printf '%s' "$line" | sed 's/.*"greeting":"\([^"]*\)".*/\1/')
+      printf '{"items":[{"title":"%s","action":{"copy":"x"}}]}\n' "$g" ;;
     crash) echo "boom" >&2; exit 1 ;;
     fail) echo '{"error":"no luck"}' ;;
     noise) echo 'hello' ;;
@@ -24,10 +28,12 @@ fn plugin(dir: &Path, answer_within: Duration) -> External {
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     fs::write(
         dir.join("plugin.toml"),
-        "name = \"Echo\"\ncommand = [\"./echo.sh\"]\n",
+        "name = \"Echo\"\ncommand = [\"./echo.sh\"]\n\n[[settings]]\nkey = \"greeting\"\ntitle = \"Greeting\"\ntype = \"text\"\ndefault = \"hello\"\n",
     )
     .unwrap();
-    External::new(Manifest::read(dir).unwrap(), |_| {}, answer_within)
+    let manifest = Manifest::read(dir).unwrap();
+    let (settings, _) = resolve(&manifest.settings, &Map::new());
+    External::new(manifest, settings, |_| {}, answer_within)
 }
 
 async fn titles(plugin: &External, query: &str) -> Result<Vec<String>, String> {
@@ -43,6 +49,7 @@ async fn answers_and_recovers() {
     let items = plugin.search("abc").await.unwrap().unwrap();
     assert_eq!(items[0].title, "abc");
     assert_eq!(items[0].action, Action::Copy("abc".into()));
+    assert_eq!(titles(&plugin, "greet").await, Ok(vec!["hello".into()]));
 
     assert_eq!(titles(&plugin, "fail").await, Err("no luck".into()));
     assert_eq!(
@@ -107,6 +114,7 @@ fn a_missing_program_is_reported() {
     .unwrap();
     let plugin = External::new(
         Manifest::read(tmp.path()).unwrap(),
+        Map::new(),
         |_| {},
         Duration::from_secs(1),
     );

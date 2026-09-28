@@ -5,6 +5,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
     process::{Child, ChildStdin, ChildStdout, Command},
@@ -26,6 +27,8 @@ pub type Prepare = fn(&mut std::process::Command);
 /// when this value is dropped.
 pub struct External {
     pub manifest: Manifest,
+    /// The value of every setting the plugin declares, sent with each query.
+    settings: Arc<Map<String, Value>>,
     prepare: Prepare,
     answer_within: Duration,
     queue: Arc<Queue>,
@@ -46,9 +49,15 @@ struct Request {
 }
 
 impl External {
-    pub fn new(manifest: Manifest, prepare: Prepare, answer_within: Duration) -> External {
+    pub fn new(
+        manifest: Manifest,
+        settings: Map<String, Value>,
+        prepare: Prepare,
+        answer_within: Duration,
+    ) -> External {
         External {
             manifest,
+            settings: Arc::new(settings),
             prepare,
             answer_within,
             queue: Arc::default(),
@@ -67,6 +76,7 @@ impl External {
         lock(&self.worker).get_or_insert_with(|| {
             tokio::spawn(work(
                 self.manifest.clone(),
+                self.settings.clone(),
                 self.prepare,
                 self.answer_within,
                 self.queue.clone(),
@@ -85,7 +95,13 @@ impl Drop for External {
     }
 }
 
-async fn work(manifest: Manifest, prepare: Prepare, answer_within: Duration, queue: Arc<Queue>) {
+async fn work(
+    manifest: Manifest,
+    settings: Arc<Map<String, Value>>,
+    prepare: Prepare,
+    answer_within: Duration,
+    queue: Arc<Queue>,
+) {
     let mut running: Option<Process> = None;
     loop {
         queue.wake.notified().await;
@@ -97,7 +113,7 @@ async fn work(manifest: Manifest, prepare: Prepare, answer_within: Duration, que
             None => Process::start(&manifest, prepare),
         };
         let answer = match process {
-            Ok(mut process) => match process.ask(&request.query, answer_within).await {
+            Ok(mut process) => match process.ask(&request.query, &settings, answer_within).await {
                 Ok(answer) => {
                     running = Some(process);
                     answer
@@ -121,6 +137,7 @@ struct Process {
 #[derive(Serialize)]
 struct Question<'q> {
     query: &'q str,
+    settings: &'q Map<String, Value>,
 }
 
 #[derive(Deserialize)]
@@ -176,10 +193,11 @@ impl Process {
     async fn ask(
         &mut self,
         query: &str,
+        settings: &Map<String, Value>,
         within: Duration,
     ) -> Result<Result<Vec<Item>, String>, String> {
         let mut question =
-            serde_json::to_string(&Question { query }).map_err(|err| err.to_string())?;
+            serde_json::to_string(&Question { query, settings }).map_err(|err| err.to_string())?;
         question.push('\n');
         let exchange = async {
             self.stdin.write_all(question.as_bytes()).await?;

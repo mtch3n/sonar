@@ -1,10 +1,11 @@
 //! Everything that answers a search besides the file index: the built-in calculator,
 //! external plugins that speak Sonar's JSON-lines protocol (see `docs/plugins.md`),
-//! and installing plugins from GitHub marketplaces.
+//! the settings plugins declare, and installing plugins from GitHub marketplaces.
 
 mod calculator;
 mod external;
 mod manifest;
+mod setting;
 pub mod store;
 
 use serde::Deserialize;
@@ -12,6 +13,7 @@ use serde::Deserialize;
 pub use calculator::calculate;
 pub use external::{External, Prepare};
 pub use manifest::{Manifest, check_keyword, discover};
+pub use setting::{Choice, Field, Setting, resolve};
 
 /// One result from a plugin.
 #[derive(Clone, Debug, PartialEq, Deserialize)]

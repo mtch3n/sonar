@@ -36,7 +36,22 @@ export type Outcome =
   | { then: "fill"; text: string }
   | { then: "refresh"; notice: string };
 
-export type PluginSettings = { enabled: boolean; keyword: string | null };
+export type SettingValue = string | number | boolean;
+
+/** `[plugins.<id>]`: Sonar's own keys, then the plugin's settings that differ from their defaults. */
+export type PluginSettings = {
+  enabled: boolean;
+  keyword: string | null;
+  [key: string]: SettingValue | null;
+};
+
+/** A setting a plugin declares; the Settings window draws a field for it. */
+export type Setting = { key: string; title: string; description: string | null } & (
+  | { type: "text"; default: string; placeholder: string | null }
+  | { type: "number"; default: number; min: number | null; max: number | null }
+  | { type: "toggle"; default: boolean }
+  | { type: "choice"; default: string; options: { value: string; title: string }[] }
+);
 
 /** settings.toml, as the Settings window edits it. */
 export type Settings = {
@@ -56,6 +71,7 @@ export type PluginInfo = {
   keyword: string | null;
   image: string | null;
   icon: string;
+  settings: Setting[];
 };
 
 export type Editor = {

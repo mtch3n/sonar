@@ -3,3 +3,14 @@ description = "Search Google, DuckDuckGo or GitHub"
 keyword = "g"
 command = ["python3", "web_search.py"]
 icon = "icon.svg"
+
+[[settings]]
+key = "first"
+title = "Listed first"
+description = "The engine Enter searches"
+type = "choice"
+options = [
+    { value = "google", title = "Google" },
+    { value = "duckduckgo", title = "DuckDuckGo" },
+    { value = "github", title = "GitHub" },
+]
