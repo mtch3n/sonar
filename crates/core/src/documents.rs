@@ -20,7 +20,9 @@ use pdf_extract::{ConvertToFmt, Document, PlainTextOutput};
 use quick_xml::{escape::resolve_predefined_entity, events::Event};
 use zip::ZipArchive;
 
-pub(crate) const EXTS: &[&str] = &["pdf", "docx", "xlsx", "pptx", "odt", "ods", "odp"];
+pub(crate) const EXTS: &[&str] = &[
+    "pdf", "docx", "xlsx", "xls", "xlsb", "pptx", "odt", "ods", "odp",
+];
 
 /// Larger files are skipped. Only the start of their text is kept, and a document
 /// this big is mostly images, fonts or embedded media, while PDFs are loaded whole
@@ -97,6 +99,7 @@ fn extract(path: &Path, ext: &str, text: &mut Text) {
             Some(())
         }),
         "xlsx" => sheets(path, text),
+        "xls" | "xlsb" => old_sheets(path, text),
         _ => {}
     }
 }
@@ -196,6 +199,29 @@ fn zipped(
 }
 
 /// Spreadsheet cells, a row per line.
+/// Sheets of older Excel files, `.xls` and `.xlsb`, a row per line. These are read
+/// whole, as the format has no cell-by-cell reader.
+fn old_sheets(path: &Path, text: &mut Text) {
+    let Ok(mut book) = calamine::open_workbook_auto(path) else {
+        return;
+    };
+    for name in book.sheet_names() {
+        let Ok(range) = book.worksheet_range(&name) else {
+            continue;
+        };
+        for row in range.rows() {
+            let cells: Vec<String> = row
+                .iter()
+                .filter_map(|cell| cell.as_string())
+                .filter(|cell| !cell.is_empty())
+                .collect();
+            if !cells.is_empty() && (!text.push(&cells.join("\t")) || !text.push("\n")) {
+                return;
+            }
+        }
+    }
+}
+
 fn sheets(path: &Path, text: &mut Text) {
     let Ok(mut book) = calamine::open_workbook::<Xlsx<_>, _>(path) else {
         return;
@@ -580,6 +606,15 @@ mod tests {
         assert_eq!(
             read(&path, "xlsx", DEFAULT_TEXT_LIMIT).as_deref(),
             Some("Item\tCost\nPaper\t12.5\nFar away")
+        );
+    }
+
+    #[test]
+    fn reads_old_excel_files() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/prices.xls");
+        assert_eq!(
+            read(&path, "xls", DEFAULT_TEXT_LIMIT).as_deref(),
+            Some("Item\tCost\nPaper\t12.5\nToner\tink cartridge")
         );
     }
 

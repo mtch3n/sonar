@@ -144,7 +144,7 @@ const KEY_EXTS: &[&str] = &[
 const DOC_EXTS: &[&str] = &[
     "doc", "docx", "odt", "rtf", "txt", "md", "markdown", "rst", "org", "tex", "epub", "pages",
 ];
-const SHEET_EXTS: &[&str] = &["xls", "xlsx", "ods", "csv", "tsv", "numbers"];
+const SHEET_EXTS: &[&str] = &["xls", "xlsx", "xlsb", "ods", "csv", "tsv", "numbers"];
 const SLIDES_EXTS: &[&str] = &["ppt", "pptx", "odp"];
 const IMAGE_EXTS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "avif", "bmp", "tif", "tiff", "svg",
