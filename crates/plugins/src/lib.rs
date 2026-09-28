@@ -20,6 +20,7 @@ pub mod services;
 mod setting;
 pub mod store;
 pub mod system;
+pub mod top;
 pub mod windows;
 
 use std::io::{BufRead, Write};
