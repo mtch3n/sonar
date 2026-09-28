@@ -36,6 +36,8 @@ sonar-models.workspace = true
 tauri-plugin-global-shortcut.workspace = true
 
 [target."cfg(target_os = \"linux\")".dependencies]
+gdkx11.workspace = true
+gtk.workspace = true
 webkit2gtk.workspace = true
 zbus.workspace = true
 

@@ -71,8 +71,38 @@ fn present(window: &WebviewWindow) {
     // again once it's shown.
     let _ = place(window, width, monitor);
     let _ = window.set_focus();
+    activate(window);
     let _ = window.emit("sonar://shown", ());
 }
+
+/// Asks the window manager for the keyboard. On X11, which the AppImage runs GTK on
+/// even under Wayland, GNOME only gives focus to a window presented with a recent
+/// user timestamp, and a window raised for a shortcut or by another process has
+/// none, so the bar opened without the keyboard. The X server's current time is one.
+#[cfg(target_os = "linux")]
+fn activate(window: &WebviewWindow) {
+    use gtk::prelude::*;
+    let handle = window.clone();
+    let _ = window.run_on_main_thread(move || {
+        let Ok(gtk_window) = handle.gtk_window() else {
+            return;
+        };
+        let x11 = gtk_window
+            .window()
+            .and_then(|w| w.downcast::<gdkx11::X11Window>().ok());
+        match x11 {
+            Some(x11) => {
+                let now = gdkx11::functions::x11_get_server_time(&x11);
+                x11.set_user_time(now);
+                gtk_window.present_with_time(now);
+            }
+            None => gtk_window.present(),
+        }
+    });
+}
+
+#[cfg(not(target_os = "linux"))]
+fn activate(_: &WebviewWindow) {}
 
 /// The search window sets its own height; the width comes from the settings and has to
 /// be right before the window is centered.

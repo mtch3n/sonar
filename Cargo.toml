@@ -60,6 +60,8 @@ toml = "1.1.6"
 tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
 toml_edit = "0.25.15"
 webkit2gtk = "2.0.2"
+gtk = "0.18.2"
+gdkx11 = "0.18.2"
 zbus = "5.19.0"
 ureq = { version = "3.4.2", default-features = false, features = ["rustls"] }
 x11rb = { version = "0.13.2", features = ["xfixes"] }
