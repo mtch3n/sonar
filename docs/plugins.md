@@ -39,9 +39,11 @@ options = [
 | `name` | yes | shown above the plugin's results and in the plugin list |
 | `command` | yes | the program and its arguments, started in the plugin folder. A program with a folder in its path, like `bin/emoji`, is relative to the plugin folder; a bare name, like `python3`, is looked up on `PATH` |
 | `description` | no | one line for the plugin list |
-| `keyword` | no | one word. With a keyword, the plugin only gets queries that start with it and a space, and its results are the only ones shown. Without one, it gets every query and its results appear below the files |
+| `keyword` | no | one word. With a keyword, the plugin only gets queries that start with it and a space, and its results are the only ones shown. Without one, it gets every query and its results appear with the files |
+| `position` | no | for a plugin without a keyword: `bottom`, the default, shows its results below the files; `top` shows them above, for short answers like a calculator's |
 | `icon` | no | a PNG, SVG, JPEG or WebP file in the plugin folder, up to 256 KB |
 | `settings` | no | options people can change; see [Settings](#settings) |
+| `requires` | no | programs your plugin needs; see [Requirements](#requirements) |
 
 People can give your plugin another keyword, or turn it off, in their settings under `[plugins.<id>]`.
 
@@ -71,6 +73,18 @@ Sonar checks values against what you declare, so your program always gets every 
 
 Keep secrets such as API keys out of settings: `settings.toml` is often shared along with other dotfiles. Read them from an environment variable or your own file, or use a command-line tool that's already signed in, like `gh` for GitHub.
 
+## Requirements
+
+A plugin written in Python, Node or another language needs that language installed, and people may not have it. Say so, and tell them how to get it:
+
+```toml
+[[requires]]
+program = "python3"
+help = "Install Python 3 from https://www.python.org/downloads/ or your package manager."
+```
+
+`program` is looked up on `PATH`. While it's missing, Sonar doesn't start your plugin: the Settings window shows `help` under it, and typing its keyword shows `help` in place of results.
+
 ## The protocol
 
 Sonar writes one JSON object per line to your program's stdin. For a plugin with a keyword, `query` is the text after the keyword, which may be empty. `settings` holds the value of every setting you declare, and is empty when you declare none.
@@ -91,6 +105,8 @@ or, when something went wrong, a message Sonar shows in place of results:
 {"error": "Couldn't reach the server"}
 ```
 
+Your program can keep files, like a cache, in the folder named by the `SONAR_PLUGIN_DATA` environment variable; Sonar creates it before starting your program.
+
 Sonar sends the next query only after you've answered the last one, and skips queries the user has already typed past, so a slow plugin never falls behind. If you don't answer within 5 seconds, or print a line that isn't JSON, Sonar stops the program and starts it again for the next query. Unknown fields are ignored, so newer plugins keep working with older versions of Sonar.
 
 ### Items
@@ -99,8 +115,11 @@ Sonar sends the next query only after you've answered the last one, and skips qu
 |---|---|---|
 | `title` | yes | the main line |
 | `subtitle` | no | a second, smaller line |
+| `icon` | no | a glyph Sonar draws: `bookmark`, `history`, `window`, `process`, `power`, `lock`, `sleep`, `restart`, `logout`, `trash`, `terminal`, `clock`, `globe`, `clipboard`, `emoji`, `calculator`, or a file kind like `folder`, `app` or `image`. Without one, the plugin's own icon is shown |
+| `image` | no | a picture instead, like an app's icon: the path of a PNG, SVG, JPEG or WebP file up to 256 KB, relative to the plugin folder or absolute, or a `data:image/` URL |
 | `action` | yes | what Enter does |
 | `alt` | no | what Ctrl + Enter (⌘ + Enter on macOS) does |
+| `label`, `alt_label` | no | what the bottom of the bar calls Enter and Ctrl + Enter, when "Open" or "Copy" says too little, like `"Copy number"` |
 
 Sonar shows up to 50 items per answer.
 

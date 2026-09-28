@@ -13,6 +13,8 @@ while IFS= read -r line; do
     greet)
       g=$(printf '%s' "$line" | sed 's/.*"greeting":"\([^"]*\)".*/\1/')
       printf '{"items":[{"title":"%s","action":{"copy":"x"}}]}\n' "$g" ;;
+    data)
+      printf '{"items":[{"title":"%s","action":{"copy":"x"}}]}\n' "$(basename "$SONAR_PLUGIN_DATA")" ;;
     crash) echo "boom" >&2; exit 1 ;;
     fail) echo '{"error":"no luck"}' ;;
     noise) echo 'hello' ;;
@@ -33,7 +35,7 @@ fn plugin(dir: &Path, answer_within: Duration) -> External {
     .unwrap();
     let manifest = Manifest::read(dir).unwrap();
     let (settings, _) = resolve(&manifest.settings, &Map::new());
-    External::new(manifest, settings, |_| {}, answer_within)
+    External::new(manifest, dir.join("data"), settings, |_| {}, answer_within)
 }
 
 async fn titles(plugin: &External, query: &str) -> Result<Vec<String>, String> {
@@ -50,6 +52,11 @@ async fn answers_and_recovers() {
     assert_eq!(items[0].title, "abc");
     assert_eq!(items[0].action, Action::Copy("abc".into()));
     assert_eq!(titles(&plugin, "greet").await, Ok(vec!["hello".into()]));
+    assert_eq!(titles(&plugin, "data").await, Ok(vec!["data".into()]));
+    assert!(
+        tmp.path().join("data").is_dir(),
+        "made before the plugin starts"
+    );
 
     assert_eq!(titles(&plugin, "fail").await, Err("no luck".into()));
     assert_eq!(
@@ -114,6 +121,7 @@ fn a_missing_program_is_reported() {
     .unwrap();
     let plugin = External::new(
         Manifest::read(tmp.path()).unwrap(),
+        tmp.path().join("data"),
         Map::new(),
         |_| {},
         Duration::from_secs(1),

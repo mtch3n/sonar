@@ -73,6 +73,7 @@ export type PluginInfo = {
   image: string | null;
   icon: string;
   settings: Setting[];
+  problem: string | null;
 };
 
 /** An installed editor or terminal, and its command as settings.toml holds it. */

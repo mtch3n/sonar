@@ -139,6 +139,11 @@ h2 {
   font-weight: 500;
 }
 
+.item-hint.problem {
+  color: var(--warning);
+  user-select: text;
+}
+
 .item-hint {
   font-size: 12px;
   line-height: 1.35;

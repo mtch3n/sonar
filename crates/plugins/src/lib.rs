@@ -15,7 +15,7 @@ use serde::Deserialize;
 
 pub use calculator::Calculator;
 pub use external::{External, Prepare};
-pub use manifest::{Manifest, check_keyword, discover};
+pub use manifest::{Manifest, Position, check_keyword, discover, image_url};
 pub use setting::{Choice, Field, Setting, resolve};
 
 /// One result from a plugin.
@@ -24,10 +24,23 @@ pub struct Item {
     pub title: String,
     #[serde(default)]
     pub subtitle: Option<String>,
+    /// A glyph Sonar draws, like `bookmark` or `window`; see docs/plugins.md.
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// A picture of its own instead, like an app's icon: a PNG, SVG, JPEG or WebP
+    /// file, relative to the plugin folder or absolute.
+    #[serde(default)]
+    pub image: Option<String>,
     pub action: Action,
     /// What Ctrl+Enter (⌘+Enter on macOS) does.
     #[serde(default)]
     pub alt: Option<Action>,
+    /// What the footer calls Enter and Ctrl+Enter, when "Open" or "Copy" says too
+    /// little, like "Copy number".
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub alt_label: Option<String>,
 }
 
 /// What happens when an item is chosen. Sonar carries these out, so plugins need no

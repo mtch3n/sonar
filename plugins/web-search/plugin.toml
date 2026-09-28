@@ -4,6 +4,10 @@ keyword = "g"
 command = ["python3", "web_search.py"]
 icon = "icon.svg"
 
+[[requires]]
+program = "python3"
+help = "Install Python 3 from https://www.python.org/downloads/ or your package manager."
+
 [[settings]]
 key = "first"
 title = "Listed first"

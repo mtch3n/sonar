@@ -26,6 +26,28 @@ pub struct Manifest {
     /// The icon as a `data:` URL.
     pub icon: Option<String>,
     pub settings: Vec<Setting>,
+    pub position: Position,
+    /// Programs the plugin needs, like `python3`, and how to get them.
+    pub requires: Vec<Requirement>,
+}
+
+/// Where a plugin without a keyword shows its results.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Position {
+    /// Above the files, like the calculator's answers.
+    Top,
+    /// Below the files.
+    #[default]
+    Bottom,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Requirement {
+    pub program: String,
+    /// What to do when the program is missing, like where to download it.
+    pub help: String,
 }
 
 #[derive(Deserialize)]
@@ -38,6 +60,10 @@ struct Raw {
     icon: Option<PathBuf>,
     #[serde(default)]
     settings: Vec<setting::Raw>,
+    #[serde(default)]
+    position: Position,
+    #[serde(default)]
+    requires: Vec<Requirement>,
 }
 
 /// Every plugin in `dir`, one per folder, sorted by id, and a message for each
@@ -87,7 +113,18 @@ impl Manifest {
             keyword: raw.keyword,
             icon,
             settings,
+            position: raw.position,
+            requires: raw.requires,
         })
+    }
+
+    /// Why the plugin can't run here: the help of the first program it needs that
+    /// isn't installed.
+    pub fn missing(&self) -> Option<String> {
+        self.requires
+            .iter()
+            .find(|requirement| !on_path(&requirement.program))
+            .map(|requirement| format!("Needs {}. {}", requirement.program, requirement.help))
     }
 
     /// The program to start. A path with a folder in it is relative to the plugin
@@ -108,6 +145,28 @@ pub fn check_keyword(keyword: &str) -> Result<(), String> {
     } else {
         Ok(())
     }
+}
+
+fn on_path(program: &str) -> bool {
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    let exts: &[&str] = if cfg!(windows) {
+        &["exe", "cmd", "bat", "com"]
+    } else {
+        &[""]
+    };
+    std::env::split_paths(&path).any(|dir| {
+        exts.iter().any(|ext| {
+            dir.join(program).with_extension(ext).is_file() || dir.join(program).is_file()
+        })
+    })
+}
+
+/// A picture file as a `data:` URL the search window can show, for plugins' own
+/// icons and the pictures on their results.
+pub fn image_url(path: &Path) -> Result<String, String> {
+    data_url(path)
 }
 
 fn data_url(path: &Path) -> Result<String, String> {
@@ -190,6 +249,31 @@ mod tests {
         assert!(problems.is_empty(), "{problems:?}");
         let web = manifests.iter().find(|m| m.id == "web-search").unwrap();
         assert_eq!(web.settings[0].key, "first");
+    }
+
+    #[test]
+    fn reads_position_and_requirements() {
+        let tmp = tempfile::tempdir().unwrap();
+        plugin(
+            tmp.path(),
+            "py",
+            "name = \"Py\"\ncommand = [\"x\"]\nposition = \"top\"\n\n[[requires]]\nprogram = \"sonar-no-such-program\"\nhelp = \"Get it from example.com.\"\n",
+        );
+        let manifest = Manifest::read(&tmp.path().join("py")).unwrap();
+        assert_eq!(manifest.position, Position::Top);
+        assert_eq!(
+            manifest.missing().as_deref(),
+            Some("Needs sonar-no-such-program. Get it from example.com.")
+        );
+        plugin(
+            tmp.path(),
+            "sh",
+            "name = \"Sh\"\ncommand = [\"x\"]\n\n[[requires]]\nprogram = \"sh\"\nhelp = \"-\"\n",
+        );
+        let manifest = Manifest::read(&tmp.path().join("sh")).unwrap();
+        assert_eq!(manifest.position, Position::Bottom);
+        #[cfg(unix)]
+        assert_eq!(manifest.missing(), None);
     }
 
     #[test]
