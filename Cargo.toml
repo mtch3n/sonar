@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/plugins", "crates/cli", "app/src-tauri"]
+members = ["crates/core", "crates/plugins", "crates/apps", "crates/cli", "app/src-tauri"]
 
 [workspace.package]
 version = "0.4.0-1"
@@ -14,6 +14,7 @@ homepage = "https://github.com/mtch3n/sonar"
 
 [workspace.dependencies]
 sonar-core = { path = "crates/core" }
+sonar-apps = { path = "crates/apps" }
 sonar-plugins = { path = "crates/plugins" }
 anyhow = "1.0.104"
 base64 = "0.23.1"

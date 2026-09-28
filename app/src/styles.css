@@ -60,7 +60,6 @@ body {
   flex-direction: column;
   overflow: hidden;
   background: var(--panel);
-  border: 1px solid var(--border);
   border-radius: 14px;
 }
 
@@ -100,7 +99,6 @@ body {
   display: grid;
   gap: 6px;
   padding: 11px 20px;
-  border-top: 1px solid var(--divider);
   font-size: 13px;
   line-height: 1.4;
   color: var(--muted);
@@ -124,7 +122,6 @@ body {
   padding: 6px 8px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border-top: 1px solid var(--divider);
 }
 
 .results::-webkit-scrollbar {
@@ -271,7 +268,7 @@ body {
   gap: 16px;
   height: 36px;
   padding: 0 18px;
-  border-top: 1px solid var(--divider);
+  background: var(--divider);
   font-size: 12px;
   color: var(--muted);
 }

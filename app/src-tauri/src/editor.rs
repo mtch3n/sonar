@@ -49,8 +49,10 @@ pub struct Editor {
     settings: Settings,
     plugins: Vec<PluginInfo>,
     path: String,
-    /// Editors found on this computer, suggested for `files.editor`.
-    editors: Vec<String>,
+    /// Editors and terminals found on this computer, offered for `files.editor` and
+    /// `files.terminal`.
+    editors: Vec<Tool>,
+    terminals: Vec<Tool>,
     /// Why the file can't be read, if it can't; the form then shows the last
     /// settings that worked.
     problem: Option<String>,
@@ -110,7 +112,8 @@ pub fn settings_get(launcher: State<'_, Launcher>) -> Editor {
     Editor {
         settings: launcher.current_settings(),
         plugins: plugins(&launcher),
-        editors: installed_editors(),
+        editors: tools(sonar_apps::editors()),
+        terminals: tools(sonar_apps::terminals()),
         path: path.display().to_string(),
         problem: Settings::load(path).err(),
     }
@@ -129,61 +132,20 @@ pub fn settings_save(
     Ok(())
 }
 
-/// Editor commands, most used first, that open a file or folder given after them.
-const EDITORS: [&str; 16] = [
-    "code",
-    "cursor",
-    "zed",
-    "zeditor",
-    "codium",
-    "windsurf",
-    "subl",
-    "idea",
-    "pycharm",
-    "webstorm",
-    "rustrover",
-    "kate",
-    "gnome-text-editor",
-    "gedit",
-    "emacs",
-    "notepad++",
-];
+#[derive(Serialize)]
+pub struct Tool {
+    name: String,
+    /// The command as `settings.toml` holds it.
+    command: String,
+}
 
-/// Editors on `PATH`, and on macOS the editor apps in /Applications.
-fn installed_editors() -> Vec<String> {
-    let dirs: Vec<_> = std::env::var_os("PATH")
-        .map(|path| std::env::split_paths(&path).collect())
-        .unwrap_or_default();
-    let found = |name: &str| {
-        let exts: &[&str] = if cfg!(windows) {
-            &["exe", "cmd", "bat"]
-        } else {
-            &[""]
-        };
-        dirs.iter().any(|dir| {
-            exts.iter()
-                .any(|ext| dir.join(name).with_extension(ext).is_file())
+fn tools(apps: Vec<sonar_apps::App>) -> Vec<Tool> {
+    apps.into_iter()
+        .map(|app| Tool {
+            command: app.command_line(),
+            name: app.name,
         })
-    };
-    let mut editors: Vec<String> = EDITORS
-        .iter()
-        .filter(|name| found(name))
-        .map(|name| name.to_string())
-        .collect();
-    if cfg!(target_os = "macos") {
-        for app in [
-            "Visual Studio Code",
-            "Cursor",
-            "Zed",
-            "Sublime Text",
-            "TextEdit",
-        ] {
-            if std::path::Path::new(&format!("/Applications/{app}.app")).exists() {
-                editors.push(format!("open -a '{app}'"));
-            }
-        }
-    }
-    editors
+        .collect()
 }
 
 /// Refuses values that don't fit what their plugin declares, naming the first one.

@@ -110,6 +110,8 @@ enum Command {
     CopyNumber(String),
     /// A project or code file, opened in the editor from the settings.
     Edit(String),
+    /// A folder or project, opened in the terminal from the settings.
+    Terminal(String),
 }
 
 #[derive(Clone, Serialize)]
@@ -574,6 +576,21 @@ impl Launcher {
                 run(&argv, &self.paths.home)?;
                 Ok(close(app))
             }
+            Command::Terminal(path) => {
+                let terminal = match read(&self.settings).terminal()? {
+                    Some(terminal) => terminal,
+                    None => sonar_apps::terminals()
+                        .into_iter()
+                        .next()
+                        .map(|app| app.command)
+                        .ok_or("No terminal found; choose one in Settings")?,
+                };
+                run(
+                    &sonar_apps::open_terminal(&terminal, &path),
+                    Path::new(&path),
+                )?;
+                Ok(close(app))
+            }
             Command::Install {
                 id,
                 name,
@@ -791,6 +808,7 @@ impl Command {
             Command::Add(_) => "Add",
             Command::CopyNumber(_) => "Copy number",
             Command::Edit(_) => "Open in editor",
+            Command::Terminal(_) => "Open in terminal",
         }
     }
 }
@@ -972,7 +990,12 @@ fn file_draft(hit: Hit, home: &Path, now: i64, editor: bool) -> Draft {
         } else {
             open(Action::Open(hit.path.clone()))
         },
-        alt: Some(open(Action::Reveal(hit.path))),
+        // A folder is already where it is; opening a terminal there is more use.
+        alt: Some(if matches!(hit.kind, Kind::Folder | Kind::Project) {
+            Command::Terminal(hit.path)
+        } else {
+            open(Action::Reveal(hit.path))
+        }),
     }
 }
 
@@ -1194,8 +1217,16 @@ mod tests {
         let project = file_draft(hit("sonar", Kind::Project), home, 0, true);
         assert!(matches!(&project.action, Command::Edit(path) if path == "/home/me/sonar"));
         assert_eq!(project.action.label(), "Open in editor");
+        assert_eq!(
+            project.alt.as_ref().map(Command::label),
+            Some("Open in terminal")
+        );
         let photo = file_draft(hit("cat.png", Kind::Image), home, 0, true);
         assert_eq!(photo.action.label(), "Open");
+        assert_eq!(
+            photo.alt.as_ref().map(Command::label),
+            Some("Show in folder")
+        );
         let no_editor = file_draft(hit("main.rs", Kind::Code), home, 0, false);
         assert_eq!(no_editor.action.label(), "Open");
     }
