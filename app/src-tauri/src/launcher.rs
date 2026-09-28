@@ -15,7 +15,9 @@ use std::{
 use serde::Serialize;
 use sonar_core::{Hit, Index, Kind, Paths, Query};
 use sonar_plugins::{
-    Action, Calculator, External, Item, Manifest, calculator,
+    Action, Calculator, External, Item, Manifest,
+    browser::{self, Browsers},
+    calculator,
     store::{self, Found, Marketplace, Repo, Source},
     strip_keyword,
 };
@@ -33,6 +35,7 @@ use crate::{
 /// Typing this and a space lists installed plugins and the marketplaces' plugins.
 const PLUGINS_KEYWORD: &str = "plugins";
 const CALCULATOR: &str = calculator::ID;
+const BROWSER: &str = browser::ID;
 /// How long an external plugin may take to answer before it is restarted.
 const ANSWER_WITHIN: Duration = Duration::from_secs(5);
 
@@ -54,6 +57,8 @@ struct Session {
     calculator: Option<Option<String>>,
     /// The currency the calculator converts money to when the query doesn't say.
     home_currency: String,
+    /// Browser bookmarks and history, and the keyword that asks only them.
+    browser: Option<(Option<String>, Arc<Browsers>)>,
     plugins: Vec<Plugin>,
     /// Plugins that are installed but turned off in the settings.
     disabled: Vec<Manifest>,
@@ -293,6 +298,17 @@ impl Launcher {
             send(vec![section(CALCULATOR, "Calculator", 0, rows, empty)]);
             return Ok(());
         }
+        if let Some((Some(keyword), browsers)) = &session.browser
+            && let Some(rest) = strip_keyword(query, keyword)
+        {
+            let found = search_browsers(browsers, rest).await;
+            let rows = self.rows(generation, found.into_iter().map(browser_draft));
+            let empty = rows
+                .is_empty()
+                .then(|| "Type part of a page's title or address".to_owned());
+            send(vec![section(BROWSER, "Browser", 0, rows, empty)]);
+            return Ok(());
+        }
         for plugin in &session.plugins {
             if let Some(keyword) = &plugin.keyword
                 && let Some(rest) = strip_keyword(query, keyword)
@@ -332,6 +348,14 @@ impl Launcher {
                 let answer = external.search(&query).await;
                 (rank, external, answer)
             });
+        }
+        // Reading history takes a moment, so its section follows the files.
+        if let Some((None, browsers)) = &session.browser {
+            let found = search_browsers(browsers, query).await;
+            let rows = self.rows(generation, found.into_iter().map(browser_draft));
+            if !rows.is_empty() {
+                send(vec![section(BROWSER, "Browser", 15, rows, None)]);
+            }
         }
         while let Some(Ok((rank, external, answer))) = asked.join_next().await {
             let answer = answer.filter(|answer| !matches!(answer, Ok(items) if items.is_empty()));
@@ -628,6 +652,7 @@ impl Session {
         Session {
             calculator: None,
             home_currency: "USD".to_owned(),
+            browser: None,
             plugins: Vec::new(),
             disabled: Vec::new(),
             catalog: OnceCell::new(),
@@ -645,12 +670,27 @@ impl Session {
             .as_str()
             .unwrap_or("USD")
             .to_owned();
+        let browser_config = settings.plugin(BROWSER);
+        let (values, problems) =
+            sonar_plugins::resolve(&browser::settings(), &browser_config.values);
+        notices.extend(problems.into_iter().map(|problem| {
+            format!("Browser: {problem}; fix it under [plugins.{BROWSER}] in settings.toml")
+        }));
+        let browser = browser_config.enabled.then(|| {
+            let history = values[browser::HISTORY] == true;
+            let results = values[browser::RESULTS].as_u64().unwrap_or(3) as usize;
+            (
+                browser_config.keyword.clone(),
+                Arc::new(Browsers::load(history, results)),
+            )
+        });
         let (manifests, problems) = sonar_plugins::discover(dir);
         notices.extend(problems);
         let mut plugins: Vec<Plugin> = Vec::new();
         let mut disabled = Vec::new();
         let mut keywords = vec![PLUGINS_KEYWORD.to_owned()];
         keywords.extend(calculator.keyword.clone());
+        keywords.extend(browser_config.keyword.clone());
         for manifest in manifests {
             let config = settings.plugin(&manifest.id);
             if !config.enabled {
@@ -689,6 +729,7 @@ impl Session {
         Session {
             calculator: calculator.enabled.then_some(calculator.keyword),
             home_currency,
+            browser,
             plugins,
             disabled,
             catalog: OnceCell::new(),
@@ -799,6 +840,32 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
         }
     }
     drafts
+}
+
+async fn search_browsers(browsers: &Arc<Browsers>, query: &str) -> Vec<browser::Found> {
+    let browsers = browsers.clone();
+    let query = query.to_owned();
+    blocking(move || Ok(browsers.search(&query)))
+        .await
+        .unwrap_or_default()
+}
+
+fn browser_draft(found: browser::Found) -> Draft {
+    let item = found.item;
+    let open = |action| Command::Plugin { action, dir: None };
+    Draft {
+        title: item.title,
+        subtitle: item.subtitle,
+        meta: None,
+        icon: if found.bookmark {
+            "bookmark"
+        } else {
+            "history"
+        },
+        image: None,
+        action: open(item.action),
+        alt: item.alt.map(open),
+    }
 }
 
 fn calculator_draft(item: Item) -> Draft {
@@ -1131,6 +1198,46 @@ mod tests {
         assert_eq!(photo.action.label(), "Open");
         let no_editor = file_draft(hit("main.rs", Kind::Code), home, 0, false);
         assert_eq!(no_editor.action.label(), "Open");
+    }
+
+    #[test]
+    fn browser_results_open_their_page_and_copy_its_address() {
+        let found = |bookmark| browser::Found {
+            item: Item {
+                title: "Rust documentation".into(),
+                subtitle: Some("doc.rust-lang.org · Work".into()),
+                action: Action::Open("https://doc.rust-lang.org/".into()),
+                alt: Some(Action::Copy("https://doc.rust-lang.org/".into())),
+            },
+            bookmark,
+        };
+        let bookmark = browser_draft(found(true));
+        assert_eq!(bookmark.icon, "bookmark");
+        assert_eq!(bookmark.action.label(), "Open");
+        assert_eq!(bookmark.alt.as_ref().map(Command::label), Some("Copy"));
+        assert_eq!(browser_draft(found(false)).icon, "history");
+    }
+
+    #[test]
+    fn browser_keywords_and_settings_are_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let settings =
+            Settings::parse("[plugins.browser]\nkeyword = \"b\"\nresults = 50\n").unwrap();
+        let mut notices = Vec::new();
+        let session = Session::load(tmp.path(), &settings, &mut notices);
+        assert!(matches!(&session.browser, Some((Some(keyword), _)) if keyword == "b"));
+        assert_eq!(
+            notices,
+            [
+                "Browser: `results` is 50; use 1 to 10; fix it under [plugins.browser] in settings.toml"
+            ]
+        );
+        let off = Settings::parse("[plugins.browser]\nenabled = false\n").unwrap();
+        assert!(
+            Session::load(tmp.path(), &off, &mut Vec::new())
+                .browser
+                .is_none()
+        );
     }
 
     #[test]

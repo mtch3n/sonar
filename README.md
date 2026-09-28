@@ -2,7 +2,7 @@
 
 # Sonar
 
-Sonar indexes your home folder and finds files as you type. It runs in the tray and opens its search bar when you press a shortcut. It also does arithmetic and unit conversions, and plugins from GitHub add more.
+Sonar indexes your home folder and finds files, and the text inside them, as you type. It runs in the tray and opens its search bar when you press a shortcut. It also searches your browser's bookmarks and history, does arithmetic, unit and currency conversions, and plugins from GitHub add more.
 
 ## Install
 
@@ -57,6 +57,12 @@ Type arithmetic or a unit conversion, like `2^10`, `sqrt 2` or `5 km to miles`, 
 
 It converts currencies too: `100 usd to eur`, `$20 in yen`. Money without a target, like `100 usd` or `10 eur + 5 usd`, is shown in your own currency, which Sonar takes from your system's region and you can change in Settings. Ctrl + Enter copies just the number. Exchange rates come from [ExchangeRate-API](https://www.exchangerate-api.com) once a day and are kept for when you're offline; turn off Download exchange rates under the calculator in Settings to stop that.
 
+## Browser
+
+Bookmarks and history from Chrome, Chromium, Brave, Edge and Vivaldi, and Arc on macOS, show above your files, from every profile. Enter opens the page in the browser and profile it came from, and Ctrl + Enter copies its address. When you use several profiles, each result says which one it's from.
+
+Sonar reads the browsers' own files, so it needs no extension, and nothing is sent anywhere. Under Browser in Settings you can search bookmarks only, change how many results show, give it a keyword like `b` so it only answers `b rust docs`, or turn it off.
+
 ## Plugins
 
 Plugins add results of their own. Most start with a keyword: with the Web search plugin, `g rust traits` offers to search Google, DuckDuckGo or GitHub.
@@ -92,6 +98,8 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
 | `plugins.calculator.currency` | your region's | the currency amounts like `100 usd` are shown in, like `"EUR"` |
 | `plugins.calculator.rates` | `true` | download exchange rates once a day |
+| `plugins.browser.history` | `true` | search history as well as bookmarks |
+| `plugins.browser.results` | `3` | browser results shown above your files, 1 to 10 |
 | `plugins.<id>.keyword` | the plugin's own | another keyword for a plugin |
 | `plugins.<id>.<setting>` | the plugin's own | a plugin's own settings, like `first = "duckduckgo"` for Web search. The Settings window lists them under each plugin |
 
@@ -103,7 +111,9 @@ Your home folder, except hidden folders (`.ssh`, `.gnupg` and `.kube` are kept),
 - macOS: `~/Library/Application Support/sonar/ignore`
 - Windows: `%APPDATA%\sonar\ignore`
 
-Sonar records names, sizes and dates, and the index never leaves your computer. Sonar itself only goes online to check GitHub for updates and, when you type `plugins`, to list and download plugins. The only time it opens a file is to read the first four bytes, when it needs to tell a script from a program or a Keynote deck from a key file.
+Sonar records names, sizes and dates, and up to 64 KB of text from plain-text files outside code projects, for searching inside them; it never reads keys and certificates. It also opens a file's first four bytes when it needs to tell a script from a program or a Keynote deck from a key file, and reads your browsers' bookmarks and history when you search. The index never leaves your computer.
+
+Sonar itself only goes online to check GitHub for updates, to download exchange rates once a day (turn off Download exchange rates under the calculator in Settings to stop that) and, when you type `plugins`, to list and download plugins.
 
 The app rescans every five minutes, or as often as `index.rescan_minutes` says. To rescan now, use Reindex now in the tray menu or run `sonar index`.
 

@@ -70,7 +70,7 @@ pub struct PluginInfo {
     settings: Vec<Setting>,
 }
 
-/// The calculator and every installed plugin, on or off.
+/// The calculator, the browser search and every installed plugin, on or off.
 fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
     let mut plugins = vec![PluginInfo {
         id: sonar_plugins::calculator::ID.into(),
@@ -81,6 +81,17 @@ fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
         icon: "calculator",
         settings: sonar_plugins::calculator::settings(),
     }];
+    plugins.push(PluginInfo {
+        id: sonar_plugins::browser::ID.into(),
+        name: "Browser".into(),
+        description: Some(
+            "Bookmarks and history from Chrome, Edge, Brave and other Chromium browsers".into(),
+        ),
+        keyword: None,
+        image: None,
+        icon: "bookmark",
+        settings: sonar_plugins::browser::settings(),
+    });
     plugins.extend(launcher.installed().into_iter().map(|manifest| PluginInfo {
         id: manifest.id,
         name: manifest.name,

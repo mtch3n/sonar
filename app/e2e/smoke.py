@@ -15,6 +15,7 @@ import json
 import os
 import shutil
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -154,6 +155,20 @@ def prepare(root: Path) -> dict:
         path = home / relative
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
+    chrome = home / ".config" / "google-chrome" / "Default"
+    chrome.mkdir(parents=True)
+    (chrome / "Bookmarks").write_text(json.dumps({"roots": {"bookmark_bar": {"type": "folder", "children": [
+        {"type": "url", "name": "Rust playground", "url": "https://play.rust-lang.org/"},
+    ]}}}))
+    history = sqlite3.connect(chrome / "History")
+    history.execute(
+        "CREATE TABLE urls(id INTEGER PRIMARY KEY, url TEXT, title TEXT, visit_count INTEGER NOT NULL DEFAULT 0,"
+        " typed_count INTEGER NOT NULL DEFAULT 0, last_visit_time INTEGER NOT NULL, hidden INTEGER NOT NULL DEFAULT 0)"
+    )
+    history.execute("INSERT INTO urls (url, title, visit_count, last_visit_time) VALUES "
+                    "('https://crates.io/crates/serde', 'serde - crates.io', 12, 0)")
+    history.commit()
+    history.close()
     config = home / ".config" / "sonar"
     shutil.copytree(REPO / "plugins" / "web-search", config / "plugins" / "web-search")
     (config / "settings.toml").write_text(
@@ -197,6 +212,12 @@ def check_search_window(driver: WebDriver):
     search(driver, "2^10", lambda r: r["title"] == "1024", "arithmetic")
     print("ok  arithmetic")
 
+    row = search(driver, "playground", lambda r: r["title"] == "Rust playground", "a Chrome bookmark")
+    assert row["subtitle"] == "play.rust-lang.org", row
+    row = search(driver, "serde", lambda r: r["title"] == "serde - crates.io", "a page from Chrome's history")
+    assert row["subtitle"] == "crates.io/crates/serde", row
+    print("ok  Chrome bookmarks and history")
+
 
 def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Path):
     # Asking the running Sonar, as a desktop shortcut would, opens its Settings window.
@@ -218,6 +239,9 @@ def check_settings_window(driver: WebDriver, app: Path, env: dict, settings: Pat
     assert buttons == ["Minimize", "Close"], buttons
     print("ok  the window's own title bar")
 
+    driver.click("button[aria-label='Browser settings']")
+    shown = driver.run("return document.querySelector(\"button[aria-label='Search history']\").ariaChecked")
+    assert shown == "true", shown
     driver.click("button[aria-label='Web search settings']")
     shown = driver.run("return document.querySelector(\"select[aria-label='Listed first']\").value")
     assert shown == "github", shown
