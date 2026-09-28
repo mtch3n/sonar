@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0-1] - 2026-09-28
+
+Nightly build for trying what's coming in 0.4.0. It's a prerelease, so Sonar's updater and `sonar update` stay on 0.3.0 unless you install it yourself.
+
+- Search inside files: words of three letters or more also match the text of notes, Markdown, CSV, scripts and config files outside code projects, and the result shows the line that matched. Name matches still come first. Keys and certificates are never read, nor OneDrive and iCloud files that aren't downloaded. The index is rebuilt once
+- Currency conversion in the calculator: `100 usd to eur`, `$20 in yen`, and amounts like `100 usd` in your own currency, which starts as your region's and can be changed in Settings. Ctrl + Enter copies just the number. Exchange rates come from ExchangeRate-API once a day and are kept for offline use; Download exchange rates in Settings turns that off
+- Plugins can declare their own settings, which the Settings window shows under each plugin and sends with every query. Web search lets you pick the engine listed first
+
 ## [0.3.0] - 2026-09-25
 
 - A Settings window, opened with Settings… in the tray: the shortcut, theme, accent color, width, visible results, result limit, rescan interval, update checks, plugins and marketplaces. Saving applies the changes at once and keeps the comments in settings.toml
