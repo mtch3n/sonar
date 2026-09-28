@@ -1,6 +1,6 @@
 #![cfg(unix)]
 
-use std::{fs, os::unix::fs::PermissionsExt, path::Path, sync::Arc, time::Duration};
+use std::{fs, path::Path, sync::Arc, time::Duration};
 
 use serde_json::Map;
 use sonar_plugins::{Action, External, Manifest, resolve};
@@ -23,12 +23,12 @@ done
 "#;
 
 fn plugin(dir: &Path, answer_within: Duration) -> External {
-    let script = dir.join("echo.sh");
-    fs::write(&script, SCRIPT).unwrap();
-    fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
+    // Run by sh rather than executed itself: a file just written can't be executed
+    // while another test's process, started at that moment, still holds it open.
+    fs::write(dir.join("echo.sh"), SCRIPT).unwrap();
     fs::write(
         dir.join("plugin.toml"),
-        "name = \"Echo\"\ncommand = [\"./echo.sh\"]\n\n[[settings]]\nkey = \"greeting\"\ntitle = \"Greeting\"\ntype = \"text\"\ndefault = \"hello\"\n",
+        "name = \"Echo\"\ncommand = [\"sh\", \"echo.sh\"]\n\n[[settings]]\nkey = \"greeting\"\ntitle = \"Greeting\"\ntype = \"text\"\ndefault = \"hello\"\n",
     )
     .unwrap();
     let manifest = Manifest::read(dir).unwrap();
