@@ -127,7 +127,7 @@ export default function Settings() {
           <Row label="Results to find" hint="When the search has no limit: filter">
             <NumberField value={draft.search.limit} onChange={(limit) => change({ ...draft, search: { limit } })} />
           </Row>
-          <Row label="Look for new files every" hint="Reindex now in the tray menu scans right away">
+          <Row label="Rescan everything every" hint="Changes show up within seconds; this catches any that slip by">
             <NumberField
               value={draft.index.rescan_minutes}
               unit="min"

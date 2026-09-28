@@ -63,6 +63,17 @@ impl Index {
         scan::scan(&mut self.conn, root, rules)
     }
 
+    /// The folders the last scan went into, for watching them for changes.
+    pub fn folders(&self) -> Result<Vec<PathBuf>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path FROM files WHERE kind IN ('folder', 'project')")?;
+        let paths = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(paths
+            .map(|p| p.map(PathBuf::from))
+            .collect::<rusqlite::Result<_>>()?)
+    }
+
     pub fn search(&self, query: &Query) -> Result<Vec<Hit>> {
         search::search(&self.conn, query, jiff::Timestamp::now().as_second())
     }
