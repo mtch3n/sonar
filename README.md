@@ -69,7 +69,7 @@ Places are the cities time zones are named after, like Tokyo or New York, some o
 
 Bookmarks and history from Chrome, Chromium, Brave, Edge and Vivaldi, and Arc on macOS, show above your files, from every profile. Enter opens the page in the browser and profile it came from, and Ctrl + Enter copies its address. When you use several profiles, each result says which one it's from.
 
-Sonar reads the browsers' own files, so it needs no extension, and nothing is sent anywhere. Under Browser in Settings you can search bookmarks only, change how many results show, give it a keyword like `b` so it only answers `b rust docs`, or turn it off.
+Sonar reads the browsers' own files, so it needs no extension, and nothing is sent anywhere. Under Browser in Settings you can turn bookmarks, history or any single profile off, change how many results show, give it a keyword like `b` so it only answers `b rust docs`, or turn it off.
 
 ## Plugins
 
@@ -107,7 +107,9 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `plugins.<id>.enabled` | `true` | `false` turns a plugin off, including `calculator` |
 | `plugins.calculator.currency` | your region's | the currency amounts like `100 usd` are shown in, like `"EUR"` |
 | `plugins.calculator.rates` | `true` | download exchange rates once a day |
-| `plugins.browser.history` | `true` | search history as well as bookmarks |
+| `plugins.browser.bookmarks` | `true` | search bookmarks |
+| `plugins.browser.history` | `true` | search history |
+| `plugins.browser.<browser>-<profile>` | `true` | `false` leaves one profile out, like `chrome-profile-7`; Settings lists every profile it finds |
 | `plugins.browser.results` | `3` | browser results shown above your files, 1 to 10 |
 | `plugins.<id>.keyword` | the plugin's own | another keyword for a plugin |
 | `plugins.<id>.<setting>` | the plugin's own | a plugin's own settings, like `first = "duckduckgo"` for Web search. The Settings window lists them under each plugin |
