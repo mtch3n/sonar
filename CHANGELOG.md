@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased]
+
+Plugins:
+- Clipboard (`clip`, on GNOME) keeps the last 200 things you copied and finds text in them; Enter copies one again and Ctrl + Enter forgets it. Copies password managers mark as secret are skipped. Sonar's GNOME extension now also reports each copy, so it replaces a clipboard extension; installed copies of the extension offer to update
+- Ports (`port`) shows which program listens on which port, and ends it
+- DNS (`dns`) looks up a domain's records, or an address's name, from your DNS server, the one set in Settings, or one named with `@`
+- Services (`svc`, on Linux) starts, stops, restarts, enables and disables systemd services, the system's and your own, and follows their logs in your terminal. systemd asks polkit, so the desktop's own password dialog appears when needed
+- Plugins can say which systems they work on with `platforms`; elsewhere they aren't listed and can't be installed. Plugin results can run a command in your terminal
+
+Settings:
+- The Settings window is rebuilt with shadcn/ui: controls line up on the right, units sit inside their fields, and no native GTK widgets remain
+- The accent color is picked from swatches like GNOME's, or System, which follows the desktop's accent; a custom color is typed in
+- Update now, under the calculator, downloads exchange rates at once
+
+Everything else:
+- Apps and windows show their own icons even when the icon file is large, like Visual Studio Code's
+- Nightly builds of main are published as a prerelease under the `nightly` tag; installed copies only update to releases
+
 ## [0.4.0] - 2026-09-28
 
 Search:

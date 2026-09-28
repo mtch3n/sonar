@@ -136,8 +136,9 @@ fn find_icon(name: &str) -> Option<PathBuf> {
         .iter()
         .filter_map(|apps| apps.parent().map(Path::to_path_buf))
         .collect();
+    // Rows draw icons small: the vector one first, then sizes near that.
     const SIZES: [&str; 7] = [
-        "scalable", "512x512", "256x256", "128x128", "96x96", "64x64", "48x48",
+        "scalable", "64x64", "96x96", "128x128", "48x48", "256x256", "512x512",
     ];
     data.iter()
         .flat_map(|dir| SIZES.map(|size| dir.join("icons/hicolor").join(size).join("apps")))

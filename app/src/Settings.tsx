@@ -1,16 +1,38 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { ChevronRight, Minus, TriangleAlert, X } from "lucide-react";
-import { Fragment, type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
-import { Glyph } from "./icons";
+import { ChevronRight, Minus, Puzzle, RefreshCw, TriangleAlert, X } from "lucide-react";
+import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemSeparator,
+  ItemTitle,
+} from "@/components/ui/item";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { applyLook } from "./look";
 import { hint, withValue } from "./pluginSettings";
-import type { Editor, PluginSettings, Setting, SettingValue, Tool, Settings as Values } from "./types";
-import "./styles.css";
-import "./settings.css";
+import type { Editor, PluginInfo, PluginSettings, Setting, SettingValue, Tool, Settings as Values } from "./types";
+import "./page.css";
 
 const isMac = navigator.userAgent.includes("Mac");
 const platform = isMac ? "mac" : navigator.userAgent.includes("Windows") ? "windows" : "linux";
+
+const DEFAULT_ACCENT = "#ff5a1f";
+/** The calculator's id, whose exchange rates Settings can update. */
+const CALCULATOR = "calculator";
 
 export default function Settings() {
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -18,7 +40,6 @@ export default function Settings() {
   const [saved, setSaved] = useState<Values | null>(null);
   const [status, setStatus] = useState<{ text: string; error: boolean } | null>(null);
   const [market, setMarket] = useState("");
-  const [expanded, setExpanded] = useState<string[]>([]);
 
   useEffect(() => {
     document.documentElement.dataset.platform = platform;
@@ -30,10 +51,11 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    if (saved) return applyLook(saved.appearance.theme, saved.appearance.accent);
-  }, [saved]);
+    if (saved && editor) return applyLook(saved.appearance.theme, accentColor(saved.appearance.accent, editor));
+  }, [saved, editor]);
 
   if (!editor || !draft || !saved) return null;
+  const systemAccent = editor.systemAccent ?? DEFAULT_ACCENT;
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
   const change = (next: Values) => {
@@ -47,8 +69,6 @@ export default function Settings() {
     change({ ...draft, plugins: { ...draft.plugins, [id]: { ...own(id), ...patch } } });
   const setValue = (id: string, setting: Setting, value: SettingValue) =>
     change({ ...draft, plugins: { ...draft.plugins, [id]: withValue(own(id), setting, value) } });
-  const toggleExpanded = (id: string) =>
-    setExpanded(expanded.includes(id) ? expanded.filter((open) => open !== id) : [...expanded, id]);
 
   async function save() {
     if (!draft) return;
@@ -69,224 +89,207 @@ export default function Settings() {
   }
 
   return (
-    <div className="page">
+    <div className="flex h-full flex-col bg-background">
       <TitleBar />
-      <main className="settings">
-        {editor.problem && (
-          <p className="banner">
-            <TriangleAlert size={16} strokeWidth={2} aria-hidden />
-            settings.toml {editor.problem}. The form shows the last settings that worked. Saving
-            fixes the file and keeps the old one as settings.toml.bak.
-          </p>
-        )}
+      <main className="flex-1 overflow-y-auto px-8 pt-7 pb-10">
+        <div className="mx-auto flex max-w-[620px] flex-col gap-7">
+          {editor.problem && (
+            <Alert variant="destructive">
+              <TriangleAlert />
+              <AlertDescription className="select-text">
+                settings.toml {editor.problem}. The form shows the last settings that worked. Saving fixes the file
+                and keeps the old one as settings.toml.bak.
+              </AlertDescription>
+            </Alert>
+          )}
 
-        <Group title="Search bar">
-          <Row label="Shortcut" hint="Click, then press the keys you want">
-            <ShortcutField value={draft.shortcut} onChange={(shortcut) => change({ ...draft, shortcut })} />
-          </Row>
-          <Row label="Theme">
-            <div className="segments" role="radiogroup" aria-label="Theme">
-              {(["system", "light", "dark"] as const).map((theme) => (
-                <button
-                  key={theme}
-                  type="button"
-                  role="radio"
-                  aria-checked={draft.appearance.theme === theme}
-                  onClick={() => appearance({ theme })}
-                >
-                  {theme[0].toUpperCase() + theme.slice(1)}
-                </button>
-              ))}
-            </div>
-          </Row>
-          <Row label="Accent color" hint="The selected result's icon and the text cursor">
-            <div className="color">
-              <input
-                type="color"
-                value={expand(draft.appearance.accent)}
-                onChange={(e) => appearance({ accent: e.target.value })}
-                aria-label="Accent color"
-              />
-              <input
-                className="text short"
-                value={draft.appearance.accent}
-                onChange={(e) => appearance({ accent: e.target.value })}
-                spellCheck={false}
-              />
-            </div>
-          </Row>
-          <Row label="Width" hint="480 to 1600">
-            <NumberField value={draft.appearance.width} unit="px" onChange={(width) => appearance({ width })} />
-          </Row>
-          <Row label="Visible results" hint="How many show before the list scrolls, 3 to 20">
-            <NumberField value={draft.appearance.rows} onChange={(rows) => appearance({ rows })} />
-          </Row>
-        </Group>
-
-        <Group title="Search">
-          <Row label="Results to find" hint="When the search has no limit: filter">
-            <NumberField value={draft.search.limit} onChange={(limit) => change({ ...draft, search: { limit } })} />
-          </Row>
-          <Row label="Rescan everything every" hint="Changes show up within seconds; this catches any that slip by">
-            <NumberField
-              value={draft.index.rescan_minutes}
-              unit="min"
-              onChange={(rescan_minutes) => change({ ...draft, index: { rescan_minutes } })}
-            />
-          </Row>
-          <Row label="Check for updates" hint="Look for new versions of Sonar on GitHub">
-            <Toggle
-              label="Check for updates"
-              on={draft.updates.check}
-              onChange={(check) => change({ ...draft, updates: { check } })}
-            />
-          </Row>
-        </Group>
-
-        <Group title="Files">
-          <Row label="Code editor" hint="Opens projects, code, scripts and config files">
-            <CommandField
-              label="Code editor"
-              value={draft.files.editor}
-              tools={editor.editors}
-              none="Each file's default app"
-              onChange={(command) => change({ ...draft, files: { ...draft.files, editor: command } })}
-            />
-          </Row>
-          <Row label="Terminal" hint="Opens folders">
-            <CommandField
-              label="Terminal"
-              value={draft.files.terminal}
-              tools={editor.terminals}
-              none="The first one found"
-              onChange={(command) => change({ ...draft, files: { ...draft.files, terminal: command } })}
-            />
-          </Row>
-        </Group>
-
-        <Group title="Plugins" note="Type plugins and a space in the search bar to install more.">
-          {editor.plugins.map((info) => {
-            const values = own(info.id);
-            const open = expanded.includes(info.id);
-            return (
-              <Fragment key={info.id}>
-                <div className="item">
-                  <Glyph icon={info.icon} image={info.image} />
-                  <span className="item-text">
-                    <span className="item-title">{info.name}</span>
-                    {info.description && <span className="item-hint">{info.description}</span>}
-                    {info.problem && <span className="item-hint problem">{info.problem}</span>}
-                  </span>
-                  <input
-                    className="text keyword"
-                    value={values.keyword ?? ""}
-                    placeholder={info.keyword ?? "No keyword"}
-                    onChange={(e) => plugin(info.id, { keyword: e.target.value.trim() || null })}
-                    aria-label={`Keyword for ${info.name}`}
-                    spellCheck={false}
-                  />
-                  <Toggle
-                    label={`Use ${info.name}`}
-                    on={values.enabled}
-                    onChange={(enabled) => plugin(info.id, { enabled })}
-                  />
-                  {info.settings.length > 0 ? (
-                    <button
-                      type="button"
-                      className="icon-button disclosure"
-                      aria-expanded={open}
-                      aria-controls={`settings-${info.id}`}
-                      aria-label={`${info.name} settings`}
-                      onClick={() => toggleExpanded(info.id)}
-                    >
-                      <ChevronRight size={16} strokeWidth={2} aria-hidden />
-                    </button>
-                  ) : (
-                    <span className="disclosure-space" />
-                  )}
-                </div>
-                {open && (
-                  <div id={`settings-${info.id}`} className="nested" aria-label={`${info.name} settings`}>
-                    {info.settings.map((setting) => (
-                      <Row key={setting.key} label={setting.title} hint={hint(setting)}>
-                        <SettingField
-                          setting={setting}
-                          value={values[setting.key] ?? setting.default}
-                          onChange={(value) => setValue(info.id, setting, value)}
-                        />
-                      </Row>
-                    ))}
-                  </div>
-                )}
-              </Fragment>
-            );
-          })}
-        </Group>
-
-        <Group title="Marketplaces" note="GitHub repositories whose plugins you can install.">
-          {draft.marketplaces.map((repo) => (
-            <div key={repo} className="item">
-              <span className="item-text">
-                <span className="item-title">{repo}</span>
-              </span>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label={`Remove ${repo}`}
-                onClick={() =>
-                  change({ ...draft, marketplaces: draft.marketplaces.filter((m) => m !== repo) })
-                }
+          <Group title="Search bar">
+            <Row label="Shortcut" hint="Click, then press the keys you want">
+              <ShortcutField value={draft.shortcut} onChange={(shortcut) => change({ ...draft, shortcut })} />
+            </Row>
+            <Row label="Theme">
+              <ToggleGroup
+                variant="outline"
+                size="sm"
+                spacing={0}
+                value={[draft.appearance.theme]}
+                onValueChange={(picked: string[]) => {
+                  const theme = picked[0] as Values["appearance"]["theme"] | undefined;
+                  if (theme) appearance({ theme });
+                }}
+                aria-label="Theme"
               >
-                <X size={16} strokeWidth={2} aria-hidden />
-              </button>
-            </div>
-          ))}
-          <div className="item">
-            <input
-              className="text grow"
-              value={market}
-              placeholder="owner/name or a GitHub link"
-              onChange={(e) => setMarket(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addMarket()}
-              aria-label="Marketplace to add"
-              spellCheck={false}
-            />
-            <button type="button" className="button" onClick={addMarket} disabled={!market.trim()}>
-              Add
-            </button>
-          </div>
-        </Group>
+                {(["system", "light", "dark"] as const).map((theme) => (
+                  <ToggleGroupItem key={theme} value={theme}>
+                    {theme[0].toUpperCase() + theme.slice(1)}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </Row>
+            <Row label="Accent color" hint="The selected result's icon and the text cursor">
+              <AccentField
+                value={draft.appearance.accent}
+                system={systemAccent}
+                onChange={(accent) => appearance({ accent })}
+              />
+            </Row>
+            <Row label="Width" hint="480 to 1600">
+              <NumberField
+                label="Width"
+                value={draft.appearance.width}
+                unit="px"
+                onChange={(width) => appearance({ width })}
+              />
+            </Row>
+            <Row label="Visible results" hint="How many show before the list scrolls, 3 to 20">
+              <NumberField label="Visible results" value={draft.appearance.rows} onChange={(rows) => appearance({ rows })} />
+            </Row>
+          </Group>
+
+          <Group title="Search">
+            <Row label="Results to find" hint="When the search has no limit: filter">
+              <NumberField
+                label="Results to find"
+                value={draft.search.limit}
+                onChange={(limit) => change({ ...draft, search: { limit } })}
+              />
+            </Row>
+            <Row label="Rescan everything every" hint="Changes show up within seconds; this catches any that slip by">
+              <NumberField
+                label="Rescan every"
+                value={draft.index.rescan_minutes}
+                unit="min"
+                onChange={(rescan_minutes) => change({ ...draft, index: { rescan_minutes } })}
+              />
+            </Row>
+            <Row label="Check for updates" hint="Look for new versions of Sonar on GitHub">
+              <Switch
+                aria-label="Check for updates"
+                checked={draft.updates.check}
+                onCheckedChange={(check) => change({ ...draft, updates: { check } })}
+              />
+            </Row>
+          </Group>
+
+          <Group title="Files">
+            <Row label="Code editor" hint="Opens projects, code, scripts and config files">
+              <CommandField
+                label="Code editor"
+                value={draft.files.editor}
+                tools={editor.editors}
+                none="Each file's default app"
+                onChange={(command) => change({ ...draft, files: { ...draft.files, editor: command } })}
+              />
+            </Row>
+            <Row label="Terminal" hint="Opens folders">
+              <CommandField
+                label="Terminal"
+                value={draft.files.terminal}
+                tools={editor.terminals}
+                none="The first one found"
+                onChange={(command) => change({ ...draft, files: { ...draft.files, terminal: command } })}
+              />
+            </Row>
+          </Group>
+
+          <Group title="Plugins" note="Type plugins and a space in the search bar to install more.">
+            {editor.plugins.map((info) => (
+              <PluginRow
+                key={info.id}
+                info={info}
+                values={own(info.id)}
+                ratesPublished={editor.ratesPublished}
+                onChange={(patch) => plugin(info.id, patch)}
+                onValue={(setting, value) => setValue(info.id, setting, value)}
+                onStatus={setStatus}
+              />
+            ))}
+          </Group>
+
+          <Group title="Marketplaces" note="GitHub repositories whose plugins you can install.">
+            {draft.marketplaces.map((repo) => (
+              <Row key={repo} label={repo}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Remove ${repo}`}
+                  onClick={() => change({ ...draft, marketplaces: draft.marketplaces.filter((m) => m !== repo) })}
+                >
+                  <X />
+                </Button>
+              </Row>
+            ))}
+            <Item size="sm">
+              <ItemContent>
+                <Input
+                  value={market}
+                  placeholder="owner/name or a GitHub link"
+                  onChange={(e) => setMarket(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && addMarket()}
+                  aria-label="Marketplace to add"
+                  spellCheck={false}
+                />
+              </ItemContent>
+              <ItemActions>
+                <Button variant="outline" onClick={addMarket} disabled={!market.trim()}>
+                  Add
+                </Button>
+              </ItemActions>
+            </Item>
+          </Group>
+        </div>
       </main>
 
-      <footer className="bar-footer">
-        <button type="button" className="link" onClick={() => invoke("settings_open_file")}>
+      <footer className="flex flex-none items-center gap-3 border-t px-6 py-3">
+        <Button variant="link" className="px-0 text-muted-foreground" onClick={() => invoke("settings_open_file")}>
           Open settings.toml
-        </button>
-        <span className={status?.error ? "status error" : "status"} role="status">
+        </Button>
+        <span
+          role="status"
+          className={cn(
+            "flex-1 truncate text-right text-sm select-text",
+            status?.error ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
           {status?.text}
         </span>
-        <button type="button" className="button primary" onClick={save} disabled={!dirty}>
+        <Button onClick={save} disabled={!dirty}>
           Save
-        </button>
+        </Button>
       </footer>
     </div>
   );
+}
+
+function accentColor(accent: string, editor: Editor): string {
+  return accent === "system" ? (editor.systemAccent ?? DEFAULT_ACCENT) : accent;
 }
 
 /** The window's own title bar: drags the window, and has its buttons where the system's aren't drawn. */
 function TitleBar() {
   const appWindow = getCurrentWindow();
   return (
-    <header className="titlebar" data-tauri-drag-region>
-      <h1 data-tauri-drag-region>Settings</h1>
+    <header
+      className={cn("flex h-13 flex-none items-center gap-2 border-b pr-2.5", isMac ? "pl-21" : "pl-8")}
+      data-tauri-drag-region
+    >
+      <h1 className="flex-1 text-[15px] font-semibold tracking-tight" data-tauri-drag-region>
+        Settings
+      </h1>
       {!isMac && (
-        <div className="window-buttons">
-          <button type="button" className="icon-button" aria-label="Minimize" onClick={() => appWindow.minimize()}>
-            <Minus size={16} strokeWidth={2} aria-hidden />
-          </button>
-          <button type="button" className="icon-button close" aria-label="Close" onClick={() => appWindow.close()}>
-            <X size={16} strokeWidth={2} aria-hidden />
-          </button>
+        <div className="flex gap-0.5">
+          <Button variant="ghost" size="icon-sm" aria-label="Minimize" onClick={() => appWindow.minimize()}>
+            <Minus />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="hover:bg-destructive/10 hover:text-destructive"
+            aria-label="Close"
+            onClick={() => appWindow.close()}
+          >
+            <X />
+          </Button>
         </div>
       )}
     </header>
@@ -295,23 +298,133 @@ function TitleBar() {
 
 function Group({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
   return (
-    <section className="group" aria-label={title}>
-      <h2>{title}</h2>
-      <div className="list">{children}</div>
-      {note && <p className="note">{note}</p>}
+    <section className="flex flex-col gap-2" aria-label={title}>
+      <h2 className="px-1 text-xs font-medium text-muted-foreground">{title}</h2>
+      <ItemGroup className="rounded-xl border bg-card">{children}</ItemGroup>
+      {note && <p className="px-1 text-xs text-muted-foreground">{note}</p>}
     </section>
   );
 }
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <div className="item">
-      <span className="item-text">
-        <span className="item-title">{label}</span>
-        {hint && <span className="item-hint">{hint}</span>}
-      </span>
-      {children}
-    </div>
+    <Item size="sm" className="flex-nowrap">
+      <ItemContent className="min-w-0">
+        <ItemTitle className="select-text">{label}</ItemTitle>
+        {hint && <ItemDescription>{hint}</ItemDescription>}
+      </ItemContent>
+      <ItemActions>{children}</ItemActions>
+    </Item>
+  );
+}
+
+/** A plugin: its keyword and switch, and its own settings folded under it. */
+function PluginRow({
+  info,
+  values,
+  ratesPublished,
+  onChange,
+  onValue,
+  onStatus,
+}: {
+  info: PluginInfo;
+  values: PluginSettings;
+  ratesPublished: number | null;
+  onChange: (patch: { enabled?: boolean; keyword?: string | null }) => void;
+  onValue: (setting: Setting, value: SettingValue) => void;
+  onStatus: (status: { text: string; error: boolean }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const foldable = info.settings.length > 0 || info.id === CALCULATOR;
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Item size="sm" className="flex-nowrap">
+        <ItemMedia variant="icon">
+          {info.image ? <img src={info.image} alt="" className="size-5 rounded" /> : <Puzzle />}
+        </ItemMedia>
+        <ItemContent className="min-w-0">
+          <ItemTitle>{info.name}</ItemTitle>
+          {info.description && <ItemDescription>{info.description}</ItemDescription>}
+          {info.problem && <ItemDescription className="text-destructive">{info.problem}</ItemDescription>}
+        </ItemContent>
+        <ItemActions>
+          <Input
+            className="w-28"
+            value={values.keyword ?? ""}
+            placeholder={info.keyword ?? "No keyword"}
+            onChange={(e) => onChange({ keyword: e.target.value.trim() || null })}
+            aria-label={`Keyword for ${info.name}`}
+            spellCheck={false}
+          />
+          <Switch
+            aria-label={`Use ${info.name}`}
+            checked={values.enabled}
+            onCheckedChange={(enabled) => onChange({ enabled })}
+          />
+          <CollapsibleTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`${info.name} settings`}
+                className={cn(!foldable && "invisible")}
+              />
+            }
+          >
+            <ChevronRight className={cn("transition-transform", open && "rotate-90")} />
+          </CollapsibleTrigger>
+        </ItemActions>
+      </Item>
+      {foldable && (
+        <CollapsibleContent className="bg-muted/40 pl-9">
+          {info.settings.map((setting) => (
+            <Row key={setting.key} label={setting.title} hint={hint(setting)}>
+              <SettingField
+                setting={setting}
+                value={values[setting.key] ?? setting.default}
+                onChange={(value) => onValue(setting, value)}
+              />
+            </Row>
+          ))}
+          {info.id === CALCULATOR && <RatesRow published={ratesPublished} onStatus={onStatus} />}
+        </CollapsibleContent>
+      )}
+      <ItemSeparator className="last:hidden" />
+    </Collapsible>
+  );
+}
+
+/** When the exchange rates are from, and a button that downloads them now. */
+function RatesRow({
+  published,
+  onStatus,
+}: {
+  published: number | null;
+  onStatus: (status: { text: string; error: boolean }) => void;
+}) {
+  const [when, setWhen] = useState(published);
+  const [updating, setUpdating] = useState(false);
+  async function update() {
+    setUpdating(true);
+    try {
+      setWhen(await invoke<number>("rates_update"));
+      onStatus({ text: "Exchange rates updated", error: false });
+    } catch (err) {
+      onStatus({ text: String(err), error: true });
+    } finally {
+      setUpdating(false);
+    }
+  }
+  const from = when
+    ? `From ${new Date(when * 1000).toLocaleDateString(undefined, { dateStyle: "medium" })}`
+    : "Not downloaded yet";
+  return (
+    <Row label="Exchange rates" hint={from}>
+      <Button variant="outline" size="sm" onClick={update} disabled={updating}>
+        {updating ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+        Update now
+      </Button>
+    </Row>
   );
 }
 
@@ -328,8 +441,8 @@ function SettingField({
   switch (setting.type) {
     case "text":
       return (
-        <input
-          className="text field"
+        <Input
+          className="w-52"
           value={String(value)}
           placeholder={setting.placeholder ?? ""}
           onChange={(e) => onChange(e.target.value)}
@@ -340,23 +453,46 @@ function SettingField({
     case "number":
       return <NumberField value={Number(value)} label={setting.title} onChange={onChange} />;
     case "toggle":
-      return <Toggle label={setting.title} on={value === true} onChange={onChange} />;
+      return <Switch aria-label={setting.title} checked={value === true} onCheckedChange={onChange} />;
     case "choice":
       return (
-        <select
-          className="text field"
+        <Choice
+          label={setting.title}
           value={String(value)}
-          onChange={(e) => onChange(e.target.value)}
-          aria-label={setting.title}
-        >
-          {setting.options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.title}
-            </option>
-          ))}
-        </select>
+          items={setting.options.map((option) => ({ value: option.value, label: option.title }))}
+          onChange={onChange}
+        />
       );
   }
+}
+
+function Choice({
+  label,
+  value,
+  items,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  items: { value: string; label: string }[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select items={items} value={value} onValueChange={(picked) => picked !== null && onChange(String(picked))}>
+      <SelectTrigger className="w-52" aria-label={label}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {items.map((item) => (
+            <SelectItem key={item.value} value={item.value}>
+              {item.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
 }
 
 /** Picks an installed app, or takes any command under "Other command…". */
@@ -375,29 +511,25 @@ function CommandField({
 }) {
   const listed = value === "" || tools.some((tool) => tool.command === value);
   const [other, setOther] = useState(!listed);
+  const items = [
+    { value: NONE, label: none },
+    ...tools.map((tool) => ({ value: tool.command, label: tool.name })),
+    { value: OTHER, label: "Other command…" },
+  ];
   return (
-    <span className="command">
-      <select
-        className="text field"
-        value={other ? OTHER : value}
-        onChange={(e) => {
-          const picked = e.target.value;
+    <span className="flex flex-col items-end gap-1.5">
+      <Choice
+        label={label}
+        value={other ? OTHER : value || NONE}
+        items={items}
+        onChange={(picked) => {
           setOther(picked === OTHER);
-          if (picked !== OTHER) onChange(picked);
+          if (picked !== OTHER) onChange(picked === NONE ? "" : picked);
         }}
-        aria-label={label}
-      >
-        <option value="">{none}</option>
-        {tools.map((tool) => (
-          <option key={tool.command} value={tool.command}>
-            {tool.name}
-          </option>
-        ))}
-        <option value={OTHER}>Other command…</option>
-      </select>
+      />
       {other && (
-        <input
-          className="text field"
+        <Input
+          className="w-52"
           value={value}
           placeholder="Command"
           onChange={(e) => onChange(e.target.value)}
@@ -410,9 +542,12 @@ function CommandField({
   );
 }
 
-/** The select value for "Other command…"; no real command starts with a NUL. */
+/** The select values for "Other command…" and for no command, which the select
+ * would show as a placeholder if it were empty; no real command starts with a NUL. */
 const OTHER = "\u0000other";
+const NONE = "\u0000none";
 
+/** A number with its unit inside the field, so every control lines up on the right. */
 function NumberField({
   value,
   unit,
@@ -421,35 +556,118 @@ function NumberField({
 }: {
   value: number;
   unit?: string;
-  label?: string;
+  label: string;
   onChange: (n: number) => void;
 }) {
   return (
-    <span className="number">
-      <input
-        className="text short"
+    <InputGroup className="w-28">
+      <InputGroupInput
         type="number"
         value={value}
         aria-label={label}
+        className="tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         onChange={(e) => onChange(Number(e.target.value))}
       />
-      <span className="unit">{unit}</span>
-    </span>
+      {unit && <InputGroupAddon align="inline-end">{unit}</InputGroupAddon>}
+    </InputGroup>
   );
 }
 
-function Toggle({ label, on, onChange }: { label: string; on: boolean; onChange: (on: boolean) => void }) {
+/** Sonar's own orange, then the accents GNOME offers. */
+const ACCENTS: [string, string][] = [
+  ["Sonar orange", DEFAULT_ACCENT],
+  ["Blue", "#3584e4"],
+  ["Teal", "#2190a4"],
+  ["Green", "#3a944a"],
+  ["Yellow", "#c88800"],
+  ["Red", "#e62d42"],
+  ["Pink", "#d56199"],
+  ["Purple", "#9141ac"],
+  ["Slate", "#6f8396"],
+];
+
+/** Swatches like GNOME's, drawn in the page: the system's color picker is a GTK
+ * dialog on Linux that looks nothing like Sonar. */
+function AccentField({
+  value,
+  system,
+  onChange,
+}: {
+  value: string;
+  system: string;
+  onChange: (accent: string) => void;
+}) {
+  const preset = value === "system" || ACCENTS.some(([, color]) => color === value.toLowerCase());
+  const [custom, setCustom] = useState(!preset);
+  const picked = (color: string) => !custom && value.toLowerCase() === color;
+  const swatch = "size-5.5 rounded-full ring-offset-2 ring-offset-card outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const ring = "ring-2 ring-foreground";
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={label}
-      className="switch"
-      onClick={() => onChange(!on)}
-    >
-      <span />
-    </button>
+    <span className="flex flex-col items-end gap-2">
+      <span className="flex flex-wrap items-center justify-end gap-1.5" role="radiogroup" aria-label="Accent color">
+        <Button
+          variant="outline"
+          size="xs"
+          role="radio"
+          aria-checked={picked("system")}
+          className={cn("rounded-full ring-offset-2 ring-offset-card", picked("system") && ring)}
+          onClick={() => {
+            setCustom(false);
+            onChange("system");
+          }}
+        >
+          <span className="size-3 rounded-full" style={{ background: system }} />
+          System
+        </Button>
+        {ACCENTS.map(([name, color]) => (
+          <button
+            key={color}
+            type="button"
+            role="radio"
+            aria-checked={picked(color)}
+            aria-label={name}
+            title={name}
+            className={cn(swatch, picked(color) && ring)}
+            style={{ background: color }}
+            onClick={() => {
+              setCustom(false);
+              onChange(color);
+            }}
+          />
+        ))}
+        <button
+          type="button"
+          role="radio"
+          aria-checked={custom}
+          aria-label="Custom color"
+          title="Custom color"
+          className={cn(
+            swatch,
+            "bg-[conic-gradient(#e62d42,#c88800,#3a944a,#2190a4,#3584e4,#9141ac,#d56199,#e62d42)]",
+            custom && ring,
+          )}
+          onClick={() => {
+            setCustom(true);
+            if (value === "system") onChange(system);
+          }}
+        />
+      </span>
+      {custom && (
+        <InputGroup className="w-28">
+          <InputGroupAddon>
+            <span className="size-3 rounded-full" style={{ background: value }} />
+          </InputGroupAddon>
+          <InputGroupInput
+            value={value}
+            onChange={(e) => onChange(e.target.value.trim())}
+            aria-label="Custom accent color"
+            placeholder={DEFAULT_ACCENT}
+            spellCheck={false}
+            autoFocus
+          />
+        </InputGroup>
+      )}
+    </span>
   );
 }
 
@@ -473,15 +691,15 @@ function ShortcutField({ value, onChange }: { value: string; onChange: (s: strin
   }
 
   return (
-    <button
-      type="button"
-      className={recording ? "text shortcut recording" : "text shortcut"}
+    <Button
+      variant="outline"
+      className={cn("min-w-36", recording && "border-ring ring-3 ring-ring/50")}
       onClick={() => setRecording(true)}
       onBlur={() => setRecording(false)}
       onKeyDown={recording ? onKeyDown : undefined}
     >
       {recording ? "Press keys…" : label(value)}
-    </button>
+    </Button>
   );
 }
 
@@ -501,11 +719,4 @@ function label(shortcut: string): string {
     return (isMac ? mac : other)[name] ?? name.toUpperCase();
   });
   return parts.join(isMac ? "" : " + ");
-}
-
-/** The color picker only takes #rrggbb. */
-function expand(color: string): string {
-  const short = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(color);
-  if (short) return `#${short[1]}${short[1]}${short[2]}${short[2]}${short[3]}${short[3]}`;
-  return /^#[0-9a-f]{6}$/i.test(color) ? color : "#ff5a1f";
 }

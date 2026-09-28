@@ -5,11 +5,15 @@
 pub mod apps;
 pub mod browser;
 pub mod calculator;
+pub mod clipboard;
 mod clock;
 pub mod currency;
+pub mod dns;
 mod external;
 mod manifest;
+pub mod ports;
 pub mod processes;
+pub mod services;
 mod setting;
 pub mod store;
 pub mod system;
@@ -22,7 +26,9 @@ use serde_json::{Map, Value};
 
 pub use calculator::Calculator;
 pub use external::{External, Prepare};
-pub use manifest::{FILE as MANIFEST, Manifest, Position, check_keyword, discover, image_url};
+pub use manifest::{
+    FILE as MANIFEST, Manifest, Platform, Position, check_keyword, discover, image_url,
+};
 pub use setting::{Choice, Field, Setting, resolve};
 
 /// One result from a plugin.
@@ -81,6 +87,8 @@ pub enum Action {
     Run(Vec<String>),
     /// Replace the search text, e.g. to complete a keyword.
     Fill(String),
+    /// Run a program in the user's terminal, like `journalctl -f` to follow logs.
+    Terminal(Vec<String>),
 }
 
 /// Runs a plugin written in Rust: answers each query Sonar writes to stdin with one

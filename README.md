@@ -75,9 +75,21 @@ Sonar reads the browsers' own files, so it needs no extension, and nothing is se
 
 ## Plugins
 
-Plugins add results of their own. Sonar ships with six, which can be turned off or given another keyword in Settings like any other plugin: Apps (type part of an app's name, like `fire` for Firefox or `vsc` for Visual Studio Code, to open it), the calculator and the browser search, System (type `lock`, `sleep`, `restart`, `shut down`, `log out` or `empty trash`; restarting, shutting down and logging out ask for a second Enter first) and Processes (`kill chrome` lists matching programs by memory; Enter ends one, Ctrl + Enter forces it) and Windows (`w` lists your open windows, most recent first; Enter switches to one, Ctrl + Enter closes it).
+Plugins add results of their own. Sonar ships with these, which can be turned off or given another keyword in Settings like any other plugin:
 
-Windows works on GNOME for now. GNOME only shows other apps' windows to its own extensions, so the first time you type `w`, Sonar offers to install a small one; log out and back in afterwards. To use it in place of Alt + Tab, move GNOME's switcher to another key and bind Alt + Tab to Sonar with the window list already typed:
+- Apps: type part of an app's name, like `fire` for Firefox or `vsc` for Visual Studio Code, to open it
+- Calculator and Browser, described above
+- System: type `lock`, `sleep`, `restart`, `shut down`, `log out` or `empty trash`; restarting, shutting down and logging out ask for a second Enter first
+- Processes: `kill chrome` lists matching programs by memory; Enter ends one, Ctrl + Enter forces it
+- Ports: `port 3000` or `port node` shows which program listens on which port, and whether other computers can reach it; Enter ends the program, Ctrl + Enter forces it
+- DNS: `dns example.com` looks up its addresses, `dns example.com mx` or `txt`, `ns`, `cname`, `soa`, `srv`, `caa` other records, and `dns 1.1.1.1` an address's name. It asks your system's DNS server, or the one set under DNS in Settings; `@9.9.9.9` in the search asks another. Enter copies a record
+- Services, on Linux: `svc docker` lists systemd services, running ones first, the system's and your own; Enter starts or stops one and Ctrl + Enter follows its logs in your terminal. A word first does just that: `svc restart docker`, `svc enable sshd`, `svc disable cups`, `svc logs nginx`. For the system's services, systemd asks for your password through the desktop's usual dialog
+- Windows, on GNOME: `w` lists your open windows, most recent first; Enter switches to one, Ctrl + Enter closes it
+- Clipboard, on GNOME: `clip` lists what you copied, newest first, and finds text in it: `clip invoice`. Enter copies it again, Ctrl + Enter removes it from the history. Sonar keeps the last 200 copies of text, and skips passwords that password managers like KeePassXC mark as secret
+
+GNOME only shows other apps' windows and clipboard to its own extensions, so the first time you type `w` or `clip`, Sonar offers to install a small one; log out and back in afterwards. The clipboard history can stand in for a clipboard extension such as Clipboard Indicator: bind Super + V to `sonar-app --query "clip "` in Settings → Keyboard → Custom Shortcuts.
+
+To use the window list in place of Alt + Tab, move GNOME's switcher to another key and bind Alt + Tab to Sonar with the window list already typed:
 
 ```sh
 gsettings set org.gnome.desktop.wm.keybindings switch-applications "['<Super>Tab']"
@@ -106,7 +118,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `shortcut` | `alt+space`, `ctrl+alt+space` on Linux | keys that open the search bar, like `ctrl+shift+k` |
 | `marketplaces` | `["mtch3n/sonar"]` | GitHub repositories whose plugins you can install |
 | `appearance.theme` | `system` | `system`, `light` or `dark` |
-| `appearance.accent` | `#ff5a1f` | color of the selected icon and the text cursor |
+| `appearance.accent` | `#ff5a1f` | color of the selected icon and the text cursor, or `system` for the desktop's accent color |
 | `appearance.width` | `720` | width of the search bar, 480 to 1600 |
 | `appearance.rows` | `8` | results shown before the list scrolls, 3 to 20 |
 | `search.limit` | `20` | results to find when the query has no `limit:` |

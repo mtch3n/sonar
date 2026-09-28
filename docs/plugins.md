@@ -44,6 +44,7 @@ options = [
 | `icon` | no | a PNG, SVG, JPEG or WebP file in the plugin folder, up to 256 KB |
 | `settings` | no | options people can change; see [Settings](#settings) |
 | `requires` | no | programs your plugin needs; see [Requirements](#requirements) |
+| `platforms` | no | the systems your plugin works on: any of `linux`, `macos` and `windows`. Without it, it's offered everywhere; elsewhere it isn't listed and can't be installed |
 
 People can give your plugin another keyword, or turn it off, in their settings under `[plugins.<id>]`.
 
@@ -115,8 +116,8 @@ Sonar sends the next query only after you've answered the last one, and skips qu
 |---|---|---|
 | `title` | yes | the main line |
 | `subtitle` | no | a second, smaller line |
-| `icon` | no | a glyph Sonar draws: `bookmark`, `history`, `window`, `process`, `power`, `lock`, `sleep`, `restart`, `logout`, `trash`, `terminal`, `clock`, `globe`, `clipboard`, `emoji`, `calculator`, or a file kind like `folder`, `app` or `image`. Without one, the plugin's own icon is shown |
-| `image` | no | a picture instead, like an app's icon: the path of a PNG, SVG, JPEG or WebP file up to 256 KB, relative to the plugin folder or absolute, or a `data:image/` URL |
+| `icon` | no | a glyph Sonar draws: `bookmark`, `history`, `window`, `process`, `port`, `service`, `power`, `lock`, `sleep`, `restart`, `logout`, `trash`, `terminal`, `clock`, `globe`, `clipboard`, `emoji`, `calculator`, or a file kind like `folder`, `app` or `image`. Without one, the plugin's own icon is shown |
+| `image` | no | a picture instead, like an app's icon: the path of an SVG up to 256 KB, or a PNG, JPEG or WebP up to 8 MB that Sonar scales down to fit, relative to the plugin folder or absolute, or a `data:image/` URL. Set `icon` too, for when the picture can't be read |
 | `action` | yes | what Enter does |
 | `alt` | no | what Ctrl + Enter (⌘ + Enter on macOS) does |
 | `label`, `alt_label` | no | what the bottom of the bar calls Enter and Ctrl + Enter, when "Open" or "Copy" says too little, like `"Copy number"` |
@@ -134,6 +135,7 @@ Sonar carries out actions itself, so plugins don't need platform-specific code t
 | `copy` | `{"copy": "¯\\_(ツ)_/¯"}` | puts text on the clipboard |
 | `run` | `{"run": ["notify-send", "Done"]}` | starts a program, with the rest of the list as its arguments. A program with a folder in its path is relative to the plugin folder |
 | `fill` | `{"fill": "g rust "}` | replaces the search text, for example to complete a word |
+| `terminal` | `{"terminal": ["journalctl", "-f"]}` | runs a program in the terminal chosen in Settings, with the rest of the list as its arguments |
 
 Every action except `fill` closes the search bar.
 

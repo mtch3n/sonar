@@ -28,6 +28,22 @@ pub struct Appearance {
     pub rows: u32,
 }
 
+/// The accent that follows the desktop's own.
+pub const SYSTEM_ACCENT: &str = "system";
+/// Sonar's own accent, for when the desktop has none.
+const DEFAULT_ACCENT: &str = "#ff5a1f";
+
+impl Appearance {
+    /// The accent as a color, with `system` looked up from the desktop.
+    pub fn accent_color(&self) -> String {
+        if self.accent == SYSTEM_ACCENT {
+            crate::host::system_accent().unwrap_or_else(|| DEFAULT_ACCENT.to_owned())
+        } else {
+            self.accent.clone()
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
@@ -102,7 +118,7 @@ impl Default for Appearance {
     fn default() -> Appearance {
         Appearance {
             theme: Theme::System,
-            accent: "#ff5a1f".to_owned(),
+            accent: DEFAULT_ACCENT.to_owned(),
             width: 720,
             rows: 8,
         }
@@ -175,8 +191,11 @@ impl Settings {
                 .ok_or_else(|| format!("marketplace `{repo}` isn't a GitHub owner/name"))?;
         }
         let a = &self.appearance;
-        if !is_hex_color(&a.accent) {
-            return Err(format!("accent `{}` isn't a color like #ff5a1f", a.accent));
+        if a.accent != SYSTEM_ACCENT && !is_hex_color(&a.accent) {
+            return Err(format!(
+                "accent `{}` isn't \"system\" or a color like #ff5a1f",
+                a.accent
+            ));
         }
         within("width", a.width, 480, 1600)?;
         within("rows", a.rows, 3, 20)?;
@@ -495,7 +514,7 @@ marketplaces = ["{OFFICIAL_MARKETPLACE}"]
 
 [appearance]
 theme = "system"    # "system", "light" or "dark"
-accent = "#ff5a1f"  # color of the selection and the text cursor
+accent = "#ff5a1f"  # color of the selection and the text cursor, or "system"
 width = 720         # 480 to 1600
 rows = 8            # results shown before the list scrolls, 3 to 20
 

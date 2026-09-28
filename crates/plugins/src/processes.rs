@@ -73,7 +73,7 @@ fn answer(query: &str, mut running: Vec<Running>) -> Vec<Item> {
 }
 
 /// The command that asks a process to end, or with `force` makes it.
-fn stop(pid: u32, force: bool) -> Vec<String> {
+pub(crate) fn stop(pid: u32, force: bool) -> Vec<String> {
     let pid = pid.to_string();
     let words: Vec<&str> = if cfg!(windows) {
         let mut words = vec!["taskkill.exe", "/PID", &pid];

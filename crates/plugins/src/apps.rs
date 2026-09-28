@@ -43,7 +43,8 @@ fn answer(query: &str, apps: &[Launchable]) -> Vec<Item> {
                 .icon
                 .as_ref()
                 .map(|path| path.to_string_lossy().into_owned());
-            item.icon = item.image.is_none().then(|| "app".into());
+            // The glyph stands in if the picture can't be shown.
+            item.icon = Some("app".into());
             item
         })
         .collect()

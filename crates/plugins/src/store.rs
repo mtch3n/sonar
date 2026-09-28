@@ -240,7 +240,9 @@ pub fn install(plugins: &Path, id: &str, source: &Source) -> Result<Manifest, St
                 path => format!("{}/{path} has no {}", source.repo, manifest::FILE),
             });
         }
-        Manifest::read(&staging)?;
+        if let Some(why) = Manifest::read(&staging)?.unsupported() {
+            return Err(why);
+        }
         let installed = Installed {
             source: source.clone(),
             commit,

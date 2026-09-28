@@ -85,5 +85,9 @@ export type Editor = {
   path: string;
   editors: Tool[];
   terminals: Tool[];
+  /** When the calculator's saved exchange rates were published, in Unix seconds. */
+  ratesPublished: number | null;
+  /** The desktop's accent, which "system" stands for. */
+  systemAccent: string | null;
   problem: string | null;
 };

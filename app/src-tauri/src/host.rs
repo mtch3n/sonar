@@ -105,9 +105,52 @@ pub fn open(app: &tauri::AppHandle, target: &str) -> Result<(), String> {
     }
 }
 
+/// The desktop's accent color, from the XDG settings portal that GNOME and KDE
+/// both answer, as `#rrggbb`.
+#[cfg(target_os = "linux")]
+pub fn system_accent() -> Option<String> {
+    use zbus::zvariant::OwnedValue;
+    let bus = zbus::blocking::Connection::session().ok()?;
+    let reply = bus
+        .call_method(
+            Some("org.freedesktop.portal.Desktop"),
+            "/org/freedesktop/portal/desktop",
+            Some("org.freedesktop.portal.Settings"),
+            "ReadOne",
+            &("org.freedesktop.appearance", "accent-color"),
+        )
+        .ok()?;
+    let value: OwnedValue = reply.body().deserialize().ok()?;
+    let rgb: (f64, f64, f64) = value.try_into().ok()?;
+    hex(rgb)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn system_accent() -> Option<String> {
+    None
+}
+
+/// The portal's color, whose channels run from 0 to 1; outside that there is none.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn hex((r, g, b): (f64, f64, f64)) -> Option<String> {
+    let channel = |c: f64| (0.0..=1.0).contains(&c).then(|| (c * 255.0).round() as u8);
+    Some(format!(
+        "#{:02x}{:02x}{:02x}",
+        channel(r)?,
+        channel(g)?,
+        channel(b)?
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn writes_the_portals_accent_as_hex() {
+        assert_eq!(hex((0.0, 0.5, 1.0)).as_deref(), Some("#0080ff"));
+        assert_eq!(hex((-1.0, -1.0, -1.0)), None);
+    }
 
     #[test]
     fn drops_what_points_into_the_appimage() {

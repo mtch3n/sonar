@@ -1,42 +1,87 @@
 name: Release
 
+# A tag like v0.1.0 publishes that version. Every night, and whenever it's run by
+# hand, main is built as a nightly: a prerelease under the `nightly` tag, versioned
+# like 0.1.0-nightly.20260928, which never becomes the latest release that
+# installed copies update to.
 on:
   push:
     tags: ["v*"]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
 
 jobs:
   draft:
     runs-on: ubuntu-latest
     outputs:
       id: ${{ steps.create.outputs.id }}
+      version: ${{ steps.version.outputs.version }}
+      nightly: ${{ steps.version.outputs.nightly }}
     steps:
       - uses: actions/checkout@v7
-      - name: Check the tag matches the version
-        run: |
-          version=$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
-            exit 1
-          fi
-      - name: Create a draft release
-        id: create
+      - name: Work out the version
+        id: version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" 'index($0, "## [" v "]") == 1 { found = 1; next } found && /^## / { exit } found' CHANGELOG.md > notes.md
-          if [ ! -s notes.md ]; then
-            echo "CHANGELOG.md has no section for $version"
-            exit 1
+          version=$(grep -m1 '^version' Cargo.toml | cut -d '"' -f2)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+              echo "Tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"
+              exit 1
+            fi
+            echo "nightly=false" >> "$GITHUB_OUTPUT"
+          else
+            if [ "$GITHUB_REF_NAME" != main ]; then
+              echo "Nightlies are built from main"
+              exit 1
+            fi
+            built=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/nightly" --jq .object.sha 2>/dev/null || true)
+            if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$built" = "$GITHUB_SHA" ]; then
+              echo "main hasn't changed since the last nightly"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
+            version="$version-nightly.$(date -u +%Y%m%d)"
+            echo "nightly=true" >> "$GITHUB_OUTPUT"
           fi
-          prerelease=false
-          case "$version" in *-*) prerelease=true ;; esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Create a draft release
+        id: create
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          NIGHTLY: ${{ steps.version.outputs.nightly }}
+        run: |
+          if [ "$NIGHTLY" = true ]; then
+            # One nightly at a time: the last one makes way.
+            gh release delete nightly --cleanup-tag --yes 2>/dev/null || true
+            tag=nightly
+            name="Sonar nightly $VERSION"
+            printf 'A nightly build of main at %s. It may be broken; installed copies of Sonar never update to it.\n' "$GITHUB_SHA" > notes.md
+            prerelease=true
+          else
+            tag="$GITHUB_REF_NAME"
+            name="Sonar $VERSION"
+            awk -v v="$VERSION" 'index($0, "## [" v "]") == 1 { found = 1; next } found && /^## / { exit } found' CHANGELOG.md > notes.md
+            if [ ! -s notes.md ]; then
+              echo "CHANGELOG.md has no section for $VERSION"
+              exit 1
+            fi
+            prerelease=false
+            case "$VERSION" in *-*) prerelease=true ;; esac
+          fi
           id=$(gh api "repos/$GITHUB_REPOSITORY/releases" \
-            -f tag_name="$GITHUB_REF_NAME" \
-            -f name="Sonar $version" \
+            -f tag_name="$tag" \
+            -f target_commitish="$GITHUB_SHA" \
+            -f name="$name" \
             -F body=@notes.md \
             -F draft=true \
             -F prerelease="$prerelease" \
@@ -45,6 +90,7 @@ jobs:
 
   app:
     needs: draft
+    if: needs.draft.outputs.id
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +104,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - name: Stamp the nightly version
+        if: needs.draft.outputs.nightly == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.draft.outputs.version }}
+        run: |
+          # The first version in each file is the app's own.
+          perl -0pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/m' Cargo.toml
+          perl -0pi -e 's/"version": "[^"]*"/"version": "$ENV{VERSION}"/' app/package.json
+          cargo update --workspace
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -105,6 +161,7 @@ jobs:
 
   cli:
     needs: draft
+    if: needs.draft.outputs.id
     strategy:
       fail-fast: false
       matrix:
@@ -118,6 +175,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - name: Stamp the nightly version
+        if: needs.draft.outputs.nightly == 'true'
+        shell: bash
+        env:
+          VERSION: ${{ needs.draft.outputs.version }}
+        run: |
+          # The first version in each file is the app's own.
+          perl -0pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/m' Cargo.toml
+          perl -0pi -e 's/"version": "[^"]*"/"version": "$ENV{VERSION}"/' app/package.json
+          cargo update --workspace
       - uses: Swatinem/rust-cache@v2
       - name: Build
         shell: bash
@@ -145,8 +212,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TARGET: ${{ matrix.target }}
           RELEASE_ID: ${{ needs.draft.outputs.id }}
+          VERSION: ${{ needs.draft.outputs.version }}
         run: |
-          name="sonar-cli-${GITHUB_REF_NAME#v}-$TARGET"
+          name="sonar-cli-$VERSION-$TARGET"
           cd out
           if [ "$RUNNER_OS" = Windows ]; then
             asset="$name.zip"
@@ -163,6 +231,7 @@ jobs:
 
   publish:
     needs: [draft, app, cli]
+    if: needs.draft.outputs.id
     runs-on: ubuntu-latest
     environment: release
     steps:
@@ -170,6 +239,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_ID: ${{ needs.draft.outputs.id }}
+          NIGHTLY: ${{ needs.draft.outputs.nightly }}
         run: |
           mkdir assets && cd assets
           gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets" --jq '.[] | "\(.id) \(.name)"' |
@@ -181,4 +251,7 @@ jobs:
             -H "Content-Type: text/plain" \
             "https://uploads.github.com/repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=SHA256SUMS.txt" \
             --input SHA256SUMS.txt > /dev/null
-          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false > /dev/null
+          # A nightly is never the latest release, which installed copies update from.
+          latest=true
+          [ "$NIGHTLY" = true ] && latest=false
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID" -F draft=false -f make_latest="$latest" > /dev/null
