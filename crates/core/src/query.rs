@@ -6,7 +6,7 @@ use std::{
 use crate::{
     Kind,
     dupes::{DEFAULT_DISTANCE, Wanted},
-    tags,
+    natural, tags,
 };
 
 pub const DEFAULT_LIMIT: usize = 20;
@@ -122,7 +122,13 @@ impl Query {
                 });
             }
         }
+        natural::apply(&mut q, now);
         Ok(q)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn parse_at_for_tests(input: &str, home: &Path, now: i64) -> Query {
+        Query::parse_at(input, home, now).unwrap()
     }
 
     fn apply(&mut self, key: Key, raw: &str, home: &Path, now: i64) -> Result<(), ParseError> {
