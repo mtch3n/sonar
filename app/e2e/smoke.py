@@ -122,7 +122,15 @@ return [...document.querySelectorAll('.row:not(.skeleton)')].map(row => ({
 
 
 def search(driver: WebDriver, query: str, match, what: str):
-    """Types `query` and waits until a row satisfies `match`."""
+    """Types `query` and waits until a row satisfies `match`. The box is emptied
+    first, so rows left from the last query can't be mistaken for the answer."""
+    driver.element("input[aria-label='Search']")
+    driver.run(
+        """const box = document.querySelector("input[aria-label='Search']");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(box, "");
+        box.dispatchEvent(new Event("input", { bubbles: true }));"""
+    )
+    wait_for(lambda: not driver.run(ROWS), 10, "the results to clear")
     driver.type("input[aria-label='Search']", query)
     return wait_for(
         lambda: next((row for row in driver.run(ROWS) if match(row)), None),
