@@ -37,9 +37,9 @@ pub fn open(app: &AppHandle) {
     let builder = builder.decorations(false).transparent(true);
     #[cfg(windows)]
     let builder = builder.decorations(false).shadow(true);
-    let built = builder.build();
-    if let Err(err) = built {
-        eprintln!("sonar: couldn't open the settings window: {err}");
+    match builder.build() {
+        Ok(window) => crate::window::plain_scrolling(&window),
+        Err(err) => eprintln!("sonar: couldn't open the settings window: {err}"),
     }
 }
 

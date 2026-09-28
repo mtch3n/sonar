@@ -33,6 +33,9 @@ toml_edit.workspace = true
 [target.'cfg(not(target_os = "linux"))'.dependencies]
 tauri-plugin-global-shortcut.workspace = true
 
+[target."cfg(target_os = \"linux\")".dependencies]
+webkit2gtk.workspace = true
+
 [target."cfg(windows)".dependencies]
 windows-registry.workspace = true
 
