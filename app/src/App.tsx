@@ -99,7 +99,12 @@ export default function App() {
       listen("sonar://view", loadView),
       listen<string>("sonar://fill", ({ payload }) => fill(payload)),
     ];
+    // The window manager may hand over the keyboard after the bar is shown; the
+    // search box takes it whenever the window does.
+    const focus = () => input.current?.focus();
+    window.addEventListener("focus", focus);
     return () => {
+      window.removeEventListener("focus", focus);
       for (const stop of stops) stop.then((unlisten) => unlisten());
     };
   }, [loadView, fill]);
