@@ -1081,12 +1081,13 @@ mod tests {
             mtime: 0,
             line: line.map(str::to_owned),
         };
+        let folder = format!("~{MAIN_SEPARATOR}scripts");
         let by_name = file_draft(hit(None), home, 0);
-        assert_eq!(by_name.subtitle.as_deref(), Some("~/scripts"));
+        assert_eq!(by_name.subtitle, Some(folder.clone()));
         let by_text = file_draft(hit(Some("rsync -av ~/Pictures nas:")), home, 0);
         assert_eq!(
-            by_text.subtitle.as_deref(),
-            Some("rsync -av ~/Pictures nas: · ~/scripts")
+            by_text.subtitle,
+            Some(format!("rsync -av ~/Pictures nas: · {folder}"))
         );
     }
 
