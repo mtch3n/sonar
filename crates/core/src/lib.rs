@@ -6,6 +6,7 @@ mod kind;
 mod level;
 mod meaning;
 mod media;
+mod natural;
 mod process;
 mod query;
 mod rules;

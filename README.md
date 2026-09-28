@@ -54,6 +54,8 @@ Words of three letters or more also match the text inside files outside code pro
 | `-word` | `-draft` | leave out matches for a word |
 | `"..."` | `"tax return"` | exact words |
 
+Everyday phrases work as filters too: `pdfs from last week`, `photos in 2024`, `spreadsheets this year`, `notes yesterday`, `videos bigger than 1 gb`, `invoices from the past 3 months`. Times (today, yesterday, this or last week, month or year, the past few days, in a year) and sizes (bigger than, over, smaller than, under) are always read as filters; a kind of file, like pdfs, photos, videos, spreadsheets, slides, documents or scripts, only when a time or size comes with it, so `photos` alone still finds `backupPhotos.sh`. Quote a phrase, like `"last week"`, to search for the words.
+
 A folder with `.git`, `Cargo.toml`, `package.json`, `pyproject.toml`, `go.mod` or similar counts as a project. It shows up as one result, and the files inside only appear when you use `kind:`, `ext:` or `in:`.
 
 ### Search by meaning
