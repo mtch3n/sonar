@@ -1,4 +1,5 @@
 use std::{
+    path::{Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex, MutexGuard},
     time::Duration,
@@ -27,6 +28,8 @@ pub type Prepare = fn(&mut std::process::Command);
 /// when this value is dropped.
 pub struct External {
     pub manifest: Manifest,
+    /// A folder the plugin may keep files in, given as `SONAR_PLUGIN_DATA`.
+    data: PathBuf,
     /// The value of every setting the plugin declares, sent with each query.
     settings: Arc<Map<String, Value>>,
     prepare: Prepare,
@@ -51,12 +54,14 @@ struct Request {
 impl External {
     pub fn new(
         manifest: Manifest,
+        data: PathBuf,
         settings: Map<String, Value>,
         prepare: Prepare,
         answer_within: Duration,
     ) -> External {
         External {
             manifest,
+            data,
             settings: Arc::new(settings),
             prepare,
             answer_within,
@@ -76,6 +81,7 @@ impl External {
         lock(&self.worker).get_or_insert_with(|| {
             tokio::spawn(work(
                 self.manifest.clone(),
+                self.data.clone(),
                 self.settings.clone(),
                 self.prepare,
                 self.answer_within,
@@ -97,6 +103,7 @@ impl Drop for External {
 
 async fn work(
     manifest: Manifest,
+    data: PathBuf,
     settings: Arc<Map<String, Value>>,
     prepare: Prepare,
     answer_within: Duration,
@@ -110,7 +117,7 @@ async fn work(
         };
         let process = match running.take() {
             Some(process) => Ok(process),
-            None => Process::start(&manifest, prepare),
+            None => Process::start(&manifest, &data, prepare),
         };
         let answer = match process {
             Ok(mut process) => match process.ask(&request.query, &settings, answer_within).await {
@@ -148,11 +155,13 @@ struct Answer {
 }
 
 impl Process {
-    fn start(manifest: &Manifest, prepare: Prepare) -> Result<Process, String> {
+    fn start(manifest: &Manifest, data: &Path, prepare: Prepare) -> Result<Process, String> {
+        let _ = std::fs::create_dir_all(data);
         let mut command = std::process::Command::new(manifest.program());
         command
             .args(&manifest.command[1..])
             .current_dir(&manifest.dir)
+            .env("SONAR_PLUGIN_DATA", data)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

@@ -15,7 +15,7 @@ use std::{
 use serde::Serialize;
 use sonar_core::{Hit, Index, Kind, Paths, Query};
 use sonar_plugins::{
-    Action, Calculator, External, Item, Manifest,
+    Action, Calculator, External, Item, Manifest, Position,
     browser::{self, Browsers},
     calculator,
     store::{self, Found, Marketplace, Repo, Source},
@@ -71,6 +71,8 @@ type Catalog = Vec<(Repo, Result<Marketplace, String>)>;
 struct Plugin {
     external: Arc<External>,
     keyword: Option<String>,
+    /// Why the plugin can't run here, like a program it needs that isn't installed.
+    missing: Option<String>,
 }
 
 /// The actions behind the rows on screen. The window only ever sends back a row id,
@@ -106,8 +108,6 @@ enum Command {
         name: String,
     },
     Add(Repo),
-    /// The calculator's answer as a bare number, like `3176.54` for `3,176.54 TWD`.
-    CopyNumber(String),
     /// A project or code file, opened in the editor from the settings.
     Edit(String),
     /// A folder or project, opened in the terminal from the settings.
@@ -138,8 +138,8 @@ pub struct Row {
     icon: String,
     /// A plugin's own icon, as a `data:` URL.
     image: Option<String>,
-    action: &'static str,
-    alt: Option<&'static str>,
+    action: String,
+    alt: Option<String>,
 }
 
 /// How the search window should look, and anything it should tell the user.
@@ -172,6 +172,9 @@ struct Draft {
     image: Option<String>,
     action: Command,
     alt: Option<Command>,
+    /// What the footer calls the actions, when a plugin says better than the default.
+    label: Option<String>,
+    alt_label: Option<String>,
 }
 
 impl Launcher {
@@ -231,7 +234,12 @@ impl Launcher {
             )),
         }
         let settings = self.current_settings();
-        let session = Session::load(&self.paths.plugins, &settings, &mut notices);
+        let session = Session::load(
+            &self.paths.plugins,
+            &self.paths.plugin_data,
+            &settings,
+            &mut notices,
+        );
         *write(&self.session) = Arc::new(session);
         *lock(&self.notices) = notices;
     }
@@ -240,7 +248,12 @@ impl Launcher {
     /// again.
     pub fn stop_plugins(&self) {
         let settings = self.current_settings();
-        let session = Session::load(&self.paths.plugins, &settings, &mut Vec::new());
+        let session = Session::load(
+            &self.paths.plugins,
+            &self.paths.plugin_data,
+            &settings,
+            &mut Vec::new(),
+        );
         *write(&self.session) = Arc::new(session);
     }
 
@@ -316,6 +329,15 @@ impl Launcher {
                 && let Some(rest) = strip_keyword(query, keyword)
             {
                 let manifest = &plugin.external.manifest;
+                if let Some(missing) = &plugin.missing {
+                    send(vec![failed(
+                        &manifest.id,
+                        &manifest.name,
+                        0,
+                        missing.clone(),
+                    )]);
+                    return Ok(());
+                }
                 send(vec![pending(&manifest.id, &manifest.name, 0)]);
                 if let Some(answer) = plugin.external.search(rest).await {
                     send(vec![self.plugin_section(generation, manifest, 0, answer)]);
@@ -342,8 +364,14 @@ impl Launcher {
         let global = session
             .plugins
             .iter()
-            .filter(|plugin| plugin.keyword.is_none());
-        for (rank, plugin) in (30..).zip(global) {
+            .filter(|plugin| plugin.keyword.is_none() && plugin.missing.is_none());
+        // Plugins placed at the top rank just above the files, the rest below them.
+        let (mut top, mut bottom) = (11..20, 30..);
+        for plugin in global {
+            let rank = match plugin.external.manifest.position {
+                Position::Top => top.next().unwrap_or(19),
+                Position::Bottom => bottom.next().unwrap_or(u32::MAX),
+            };
             let external = plugin.external.clone();
             let query = query.to_owned();
             asked.spawn(async move {
@@ -437,6 +465,8 @@ impl Launcher {
                 image: None,
                 action: Command::Add(repo),
                 alt: None,
+                label: None,
+                alt_label: None,
             };
             let rows = self.rows(generation, Some(draft));
             first.push(section("add", "From GitHub", 0, rows, None));
@@ -522,6 +552,8 @@ impl Launcher {
                                 update: false,
                             },
                             alt: None,
+                            label: None,
+                            alt_label: None,
                         });
                     let rows = self.rows(generation, drafts);
                     let empty = rows.is_empty().then(|| match filter {
@@ -566,7 +598,6 @@ impl Launcher {
         let settings_path = self.paths.settings.clone();
         match command {
             Command::Plugin { action, dir } => self.act(app, action, dir.as_deref()),
-            Command::CopyNumber(number) => self.act(app, Action::Copy(number), None),
             Command::Edit(path) => {
                 let editor = read(&self.settings).editor()?;
                 let Some(mut argv) = editor else {
@@ -676,7 +707,7 @@ impl Session {
         }
     }
 
-    fn load(dir: &Path, settings: &Settings, notices: &mut Vec<String>) -> Session {
+    fn load(dir: &Path, data: &Path, settings: &Settings, notices: &mut Vec<String>) -> Session {
         let calculator = settings.plugin(CALCULATOR);
         let (values, problems) =
             sonar_plugins::resolve(&calculator::settings(), &calculator.values);
@@ -731,14 +762,18 @@ impl Session {
                 }
                 keywords.push(keyword.clone());
             }
+            let missing = manifest.missing();
+            let data = data.join(&manifest.id);
             plugins.push(Plugin {
                 external: Arc::new(External::new(
                     manifest,
+                    data,
                     values,
                     host::prepare_plugin,
                     ANSWER_WITHIN,
                 )),
                 keyword,
+                missing,
             });
         }
         Session {
@@ -775,8 +810,13 @@ impl Results {
             meta: draft.meta,
             icon: draft.icon.to_owned(),
             image: draft.image,
-            action: draft.action.label(),
-            alt: draft.alt.as_ref().map(Command::label),
+            action: draft
+                .label
+                .unwrap_or_else(|| draft.action.label().to_owned()),
+            alt: draft
+                .alt
+                .as_ref()
+                .map(|alt| draft.alt_label.unwrap_or_else(|| alt.label().to_owned())),
         };
         self.rows.insert(
             id,
@@ -804,7 +844,6 @@ impl Command {
             Command::Install { update: true, .. } => "Update",
             Command::Uninstall { .. } => "Remove",
             Command::Add(_) => "Add",
-            Command::CopyNumber(_) => "Copy number",
             Command::Edit(_) => "Open in editor",
             Command::Terminal(_) => "Open in terminal",
         }
@@ -826,6 +865,8 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
             image: None,
             action: fill(PLUGINS_KEYWORD),
             alt: None,
+            label: None,
+            alt_label: None,
         });
     }
     if let Some(Some(keyword)) = &session.calculator
@@ -839,6 +880,8 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
             image: None,
             action: fill(keyword),
             alt: None,
+            label: None,
+            alt_label: None,
         });
     }
     for plugin in &session.plugins {
@@ -852,6 +895,8 @@ fn suggestions(session: &Session, query: &str) -> Vec<Draft> {
                 image: manifest.icon.clone(),
                 action: fill(query),
                 alt: None,
+                label: None,
+                alt_label: None,
             });
         }
     }
@@ -881,6 +926,8 @@ fn browser_draft(found: browser::Found) -> Draft {
         image: None,
         action: open(item.action),
         alt: item.alt.map(open),
+        label: None,
+        alt_label: None,
     }
 }
 
@@ -895,10 +942,9 @@ fn calculator_draft(item: Item) -> Draft {
             action: item.action,
             dir: None,
         },
-        alt: item.alt.map(|action| match action {
-            Action::Copy(number) => Command::CopyNumber(number),
-            action => Command::Plugin { action, dir: None },
-        }),
+        alt: item.alt.map(|action| Command::Plugin { action, dir: None }),
+        label: item.label,
+        alt_label: item.alt_label,
     }
 }
 
@@ -907,15 +953,77 @@ fn plugin_draft(item: Item, manifest: &Manifest) -> Draft {
         action,
         dir: Some(manifest.dir.clone()),
     };
+    // A picture of the result's own, else its glyph, else the plugin's icon.
+    let image = item
+        .image
+        .as_deref()
+        .and_then(|image| picture(&manifest.dir, image))
+        .or_else(|| item.icon.is_none().then(|| manifest.icon.clone()).flatten());
     Draft {
         title: item.title,
         subtitle: item.subtitle,
         meta: None,
-        icon: "plugin",
-        image: manifest.icon.clone(),
+        icon: item.icon.as_deref().map_or("plugin", glyph),
+        image,
         action: command(item.action),
         alt: item.alt.map(command),
+        label: item.label,
+        alt_label: item.alt_label,
     }
+}
+
+/// Glyphs the search window draws; a plugin naming any other gets the plugin glyph.
+const GLYPHS: &[&str] = &[
+    "project",
+    "folder",
+    "app",
+    "code",
+    "script",
+    "key",
+    "pdf",
+    "doc",
+    "sheet",
+    "slides",
+    "image",
+    "video",
+    "audio",
+    "archive",
+    "config",
+    "other",
+    "calculator",
+    "plugin",
+    "bookmark",
+    "history",
+    "window",
+    "process",
+    "power",
+    "lock",
+    "sleep",
+    "restart",
+    "logout",
+    "trash",
+    "terminal",
+    "clock",
+    "globe",
+    "clipboard",
+    "emoji",
+];
+
+fn glyph(name: &str) -> &'static str {
+    GLYPHS
+        .iter()
+        .find(|g| **g == name)
+        .copied()
+        .unwrap_or("plugin")
+}
+
+/// A result's picture as a `data:` URL: a file relative to the plugin folder, or a
+/// `data:` URL as it is. Pictures that can't be read are left out.
+fn picture(dir: &Path, image: &str) -> Option<String> {
+    if image.starts_with("data:image/") {
+        return Some(image.to_owned());
+    }
+    sonar_plugins::image_url(&dir.join(image)).ok()
 }
 
 fn installed_draft(manifest: &Manifest, keyword: Option<&str>, enabled: bool) -> Draft {
@@ -952,6 +1060,8 @@ fn installed_draft(manifest: &Manifest, keyword: Option<&str>, enabled: bool) ->
         image: manifest.icon.clone(),
         action,
         alt,
+        label: None,
+        alt_label: None,
     }
 }
 
@@ -994,6 +1104,8 @@ fn file_draft(hit: Hit, home: &Path, now: i64, editor: bool) -> Draft {
         } else {
             open(Action::Reveal(hit.path))
         }),
+        label: None,
+        alt_label: None,
     }
 }
 
@@ -1155,7 +1267,7 @@ mod tests {
         )
         .unwrap();
         let mut notices = Vec::new();
-        let session = Session::load(tmp.path(), &settings, &mut notices);
+        let session = Session::load(tmp.path(), tmp.path(), &settings, &mut notices);
         assert_eq!(session.home_currency, "EUR");
         assert_eq!(
             session.plugins.len(),
@@ -1172,7 +1284,7 @@ mod tests {
 
         let settings = Settings::parse("[plugins.calculator]\ncurrency = \"XYZ\"\n").unwrap();
         let mut notices = Vec::new();
-        let session = Session::load(tmp.path(), &settings, &mut notices);
+        let session = Session::load(tmp.path(), tmp.path(), &settings, &mut notices);
         assert_ne!(session.home_currency, "XYZ");
         assert!(
             notices[0].starts_with("Calculator: `currency` is `XYZ`"),
@@ -1237,6 +1349,10 @@ mod tests {
                 subtitle: Some("doc.rust-lang.org · Work".into()),
                 action: Action::Open("https://doc.rust-lang.org/".into()),
                 alt: Some(Action::Copy("https://doc.rust-lang.org/".into())),
+                icon: None,
+                image: None,
+                label: None,
+                alt_label: None,
             },
             bookmark,
         };
@@ -1253,7 +1369,7 @@ mod tests {
         let settings =
             Settings::parse("[plugins.browser]\nkeyword = \"b\"\nresults = 50\n").unwrap();
         let mut notices = Vec::new();
-        let session = Session::load(tmp.path(), &settings, &mut notices);
+        let session = Session::load(tmp.path(), tmp.path(), &settings, &mut notices);
         assert!(matches!(&session.browser, Some((Some(keyword), _)) if keyword == "b"));
         assert_eq!(
             notices,
@@ -1263,27 +1379,96 @@ mod tests {
         );
         let off = Settings::parse("[plugins.browser]\nenabled = false\n").unwrap();
         assert!(
-            Session::load(tmp.path(), &off, &mut Vec::new())
+            Session::load(tmp.path(), tmp.path(), &off, &mut Vec::new())
                 .browser
                 .is_none()
         );
     }
 
     #[test]
-    fn money_offers_to_copy_the_bare_number() {
-        let draft = calculator_draft(Item {
+    fn every_glyph_has_an_icon_in_the_window() {
+        let icons = include_str!("../../src/icons.tsx");
+        for glyph in GLYPHS {
+            let key = if glyph.contains('-') {
+                format!("\"{glyph}\":")
+            } else {
+                format!("  {glyph}:")
+            };
+            assert!(icons.contains(&key), "icons.tsx has no {glyph}");
+        }
+    }
+
+    #[test]
+    fn plugin_results_bring_their_labels_glyphs_and_pictures() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("app.svg"), "<svg/>").unwrap();
+        let manifest = |icon: Option<&str>| Manifest {
+            id: "x".into(),
+            dir: tmp.path().to_owned(),
+            name: "X".into(),
+            description: None,
+            command: vec!["x".into()],
+            keyword: None,
+            icon: icon.map(str::to_owned),
+            settings: Vec::new(),
+            position: sonar_plugins::Position::Top,
+            requires: Vec::new(),
+        };
+        let item = |icon: Option<&str>, image: Option<&str>| Item {
             title: "3,176.54 TWD".into(),
-            subtitle: Some("ExchangeRate-API rates of 2026-09-28".into()),
+            subtitle: None,
+            icon: icon.map(str::to_owned),
+            image: image.map(str::to_owned),
             action: Action::Copy("3,176.54 TWD".into()),
             alt: Some(Action::Copy("3176.54".into())),
-        });
-        assert_eq!(draft.action.label(), "Copy");
-        assert_eq!(draft.alt.as_ref().map(Command::label), Some("Copy number"));
-        assert!(matches!(draft.alt, Some(Command::CopyNumber(n)) if n == "3176.54"));
+            label: None,
+            alt_label: Some("Copy number".into()),
+        };
+        let mut results = Results::default();
+        let generation = results.begin();
+        let plugin_icon = Some("data:image/png;base64,AA");
+
+        let row = results
+            .add(
+                generation,
+                plugin_draft(item(None, None), &manifest(plugin_icon)),
+            )
+            .unwrap();
         assert_eq!(
-            draft.subtitle.as_deref(),
-            Some("ExchangeRate-API rates of 2026-09-28")
+            (row.action.as_str(), row.alt.as_deref()),
+            ("Copy", Some("Copy number"))
         );
+        assert_eq!(
+            (row.icon.as_str(), row.image.as_deref()),
+            ("plugin", plugin_icon)
+        );
+
+        let row = results
+            .add(
+                generation,
+                plugin_draft(item(Some("window"), None), &manifest(plugin_icon)),
+            )
+            .unwrap();
+        assert_eq!(
+            (row.icon.as_str(), row.image),
+            ("window", None),
+            "a glyph wins over the plugin's icon"
+        );
+        let row = results
+            .add(
+                generation,
+                plugin_draft(item(Some("nonsense"), None), &manifest(None)),
+            )
+            .unwrap();
+        assert_eq!(row.icon, "plugin");
+
+        let row = results
+            .add(
+                generation,
+                plugin_draft(item(None, Some("app.svg")), &manifest(plugin_icon)),
+            )
+            .unwrap();
+        assert!(row.image.unwrap().starts_with("data:image/svg+xml;base64,"));
     }
 
     #[test]
@@ -1297,6 +1482,8 @@ mod tests {
             image: None,
             action: Command::Add(Repo::parse("a/b").unwrap()),
             alt: None,
+            label: None,
+            alt_label: None,
         };
         let first = results.begin();
         let old = results.add(first, draft()).unwrap().id;

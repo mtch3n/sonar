@@ -70,6 +70,8 @@ pub struct PluginInfo {
     icon: &'static str,
     /// What the Settings window draws a form for.
     settings: Vec<Setting>,
+    /// Why it can't run here, like a program it needs that isn't installed.
+    problem: Option<String>,
 }
 
 /// The calculator, the browser search and every installed plugin, on or off.
@@ -82,6 +84,7 @@ fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
         image: None,
         icon: "calculator",
         settings: sonar_plugins::calculator::settings(),
+        problem: None,
     }];
     plugins.push(PluginInfo {
         id: sonar_plugins::browser::ID.into(),
@@ -93,8 +96,10 @@ fn plugins(launcher: &Launcher) -> Vec<PluginInfo> {
         image: None,
         icon: "bookmark",
         settings: sonar_plugins::browser::settings(),
+        problem: None,
     });
     plugins.extend(launcher.installed().into_iter().map(|manifest| PluginInfo {
+        problem: manifest.missing(),
         id: manifest.id,
         name: manifest.name,
         description: manifest.description,
@@ -179,6 +184,7 @@ mod tests {
             image: None,
             icon: "calculator",
             settings: sonar_plugins::calculator::settings(),
+            problem: None,
         };
         let plugins = [calculator];
         let good = Settings::parse("[plugins.calculator]\ncurrency = \"JPY\"\n").unwrap();

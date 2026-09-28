@@ -94,6 +94,10 @@ impl Calculator {
                 subtitle: None,
                 action: Action::Copy(value),
                 alt: None,
+                icon: None,
+                image: None,
+                label: None,
+                alt_label: None,
             });
         }
         let rates = self.rates.as_ref()?;
@@ -108,6 +112,10 @@ impl Calculator {
             subtitle: Some(format!("{} rates of {published}", currency::SOURCE)),
             action: Action::Copy(title),
             alt: Some(Action::Copy(format!("{amount:.decimals$}"))),
+            icon: None,
+            image: None,
+            label: None,
+            alt_label: Some("Copy number".into()),
         })
     }
 }

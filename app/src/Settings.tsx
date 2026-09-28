@@ -175,6 +175,7 @@ export default function Settings() {
                   <span className="item-text">
                     <span className="item-title">{info.name}</span>
                     {info.description && <span className="item-hint">{info.description}</span>}
+                    {info.problem && <span className="item-hint problem">{info.problem}</span>}
                   </span>
                   <input
                     className="text keyword"

@@ -28,6 +28,8 @@ pub struct Paths {
     pub rules: PathBuf,
     pub settings: PathBuf,
     pub plugins: PathBuf,
+    /// Where each plugin may keep files, in a folder named by its id.
+    pub plugin_data: PathBuf,
 }
 
 impl Paths {
@@ -44,6 +46,7 @@ impl Paths {
             rules: config.join("ignore"),
             settings: config.join("settings.toml"),
             plugins: config.join("plugins"),
+            plugin_data: data.join("sonar").join("plugins"),
         })
     }
 }

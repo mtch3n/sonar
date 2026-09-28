@@ -310,6 +310,10 @@ fn show(time: &Zoned, place: Option<&Place>, other: &TimeZone, who: &str) -> Ite
         subtitle: Some(format!("{} · {apart}", utc(time.offset()))),
         action: Action::Copy(title),
         alt: Some(Action::Copy(time.strftime("%Y-%m-%dT%H:%M%:z").to_string())),
+        icon: None,
+        image: None,
+        label: None,
+        alt_label: None,
     }
 }
 
@@ -386,6 +390,10 @@ fn date_math(words: &[&str], today: Date) -> Option<Item> {
         subtitle: Some(from_today),
         action: Action::Copy(title),
         alt: Some(Action::Copy(date.to_string())),
+        icon: None,
+        image: None,
+        label: None,
+        alt_label: None,
     })
 }
 
@@ -421,6 +429,10 @@ fn between(from: Date, to: Date) -> Option<Item> {
         subtitle: Some(subtitle),
         action: Action::Copy(title),
         alt: Some(Action::Copy(days.to_string())),
+        icon: None,
+        image: None,
+        label: None,
+        alt_label: None,
     })
 }
 

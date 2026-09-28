@@ -336,6 +336,10 @@ impl Browsers {
                 subtitle: Some(subtitle),
                 action,
                 alt: Some(Action::Copy(url.to_owned())),
+                icon: None,
+                image: None,
+                label: None,
+                alt_label: None,
             },
             bookmark,
         }
