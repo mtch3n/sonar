@@ -131,18 +131,35 @@ def search(driver: WebDriver, query: str, match, what: str):
     )
 
 
+def x_displays() -> set:
+    return {p.name for p in Path("/tmp/.X11-unix").glob("X*")}
+
+
 def headless_display() -> tuple[subprocess.Popen, dict]:
     """Starts mutter with a virtual monitor and no window on screen, and the
-    variables that send Sonar to it and not to the desktop."""
+    variables that send Sonar to it and not to the desktop. It also runs an
+    Xwayland of its own, because the AppImage starts GTK on X11."""
     name = f"sonar-e2e-{os.getpid()}"
     socket_path = Path(os.environ["XDG_RUNTIME_DIR"]) / name
+    runtime = Path(os.environ["XDG_RUNTIME_DIR"])
+    cookies = lambda: set(runtime.glob(".mutter-Xwaylandauth.*"))
+    before, cookies_before = x_displays(), cookies()
     compositor = subprocess.Popen(
-        ["mutter", "--headless", "--wayland", "--no-x11", "--virtual-monitor", "1280x800", "--wayland-display", name],
+        ["mutter", "--headless", "--wayland", "--virtual-monitor", "1280x800", "--wayland-display", name],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
     wait_for(socket_path.exists, 15, "the headless compositor")
-    return compositor, {"WAYLAND_DISPLAY": name, "GDK_BACKEND": "wayland", "DISPLAY": None}
+    new = wait_for(lambda: x_displays() - before, 15, "the headless compositor's X display")
+    display = ":" + min(new, key=lambda x: int(x[1:]))[1:]
+    # Its X server only lets in programs with its own cookie, not the desktop's.
+    cookie = wait_for(lambda: cookies() - cookies_before, 15, "the headless X server's cookie")
+    return compositor, {
+        "WAYLAND_DISPLAY": name,
+        "DISPLAY": display,
+        "XAUTHORITY": str(next(iter(cookie))),
+        "GDK_BACKEND": None,
+    }
 
 
 def prepare(root: Path) -> dict:
