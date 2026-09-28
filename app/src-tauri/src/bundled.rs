@@ -5,7 +5,7 @@
 use std::{fs, path::Path};
 
 use serde::Serialize;
-use sonar_plugins::{Setting, calculator};
+use sonar_plugins::{Setting, browser, calculator};
 
 struct Bundled {
     id: &'static str,
@@ -19,15 +19,26 @@ struct Bundled {
     serve: fn(),
 }
 
-const BUNDLED: &[Bundled] = &[Bundled {
-    id: calculator::ID,
-    name: "Calculator",
-    description: "Arithmetic, units, currencies, time zones and dates",
-    position: "top",
-    icon: include_str!("../icons/plugins/calculator.svg"),
-    settings: calculator::settings,
-    serve: calculator::serve,
-}];
+const BUNDLED: &[Bundled] = &[
+    Bundled {
+        id: calculator::ID,
+        name: "Calculator",
+        description: "Arithmetic, units, currencies, time zones and dates",
+        position: "top",
+        icon: include_str!("../icons/plugins/calculator.svg"),
+        settings: calculator::settings,
+        serve: calculator::serve,
+    },
+    Bundled {
+        id: browser::ID,
+        name: "Browser",
+        description: "Bookmarks and history from Chrome, Edge, Brave and other Chromium browsers",
+        position: "top",
+        icon: include_str!("../icons/plugins/browser.svg"),
+        settings: browser::settings,
+        serve: browser::serve,
+    },
+];
 
 /// Runs the bundled plugin `id`, if there is one by that name.
 pub fn serve(id: &str) -> bool {
@@ -89,7 +100,9 @@ mod tests {
         write(tmp.path(), Path::new("/opt/sonar/sonar-app")).unwrap();
         let (manifests, problems) = sonar_plugins::discover(tmp.path());
         assert!(problems.is_empty(), "{problems:?}");
-        let calculator = &manifests[0];
+        let ids: Vec<&str> = manifests.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["browser", "calculator"]);
+        let calculator = &manifests[1];
         assert_eq!(calculator.id, "calculator");
         assert_eq!(
             calculator.command,

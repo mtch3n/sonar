@@ -14,6 +14,16 @@ use serde_json::{Map, Value};
 
 use crate::{Action, Field, Item, Setting};
 
+/// Runs the browser search as a plugin, which `sonar-app --plugin browser` does.
+/// Bookmarks are read at the first query and kept while the search bar is open.
+pub fn serve() {
+    let mut browsers: Option<Browsers> = None;
+    crate::serve(|query, settings| {
+        let browsers = browsers.get_or_insert_with(|| Browsers::load(settings));
+        Ok(browsers.search(query))
+    });
+}
+
 /// The browser integration's id in `settings.toml`.
 pub const ID: &str = "browser";
 /// Its settings keys; each profile also has its own, from [`Profile::key`].
@@ -202,13 +212,6 @@ struct Bookmark {
     profile: usize,
 }
 
-/// A result, and whether it's a bookmark rather than a page from history.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Found {
-    pub item: Item,
-    pub bookmark: bool,
-}
-
 /// The browsers' bookmarks, read when the search bar opens, and their history,
 /// searched as you type.
 pub struct Browsers {
@@ -259,7 +262,7 @@ impl Browsers {
 
     /// Bookmarks whose title or address has every word of `query`, then pages from
     /// history, most visited first.
-    pub fn search(&self, query: &str) -> Vec<Found> {
+    pub fn search(&self, query: &str) -> Vec<Item> {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         if words.concat().chars().count() < MIN_QUERY {
             return Vec::new();
@@ -310,7 +313,7 @@ impl Browsers {
         found
     }
 
-    fn found(&self, title: &str, url: &str, profile: usize, bookmark: bool) -> Found {
+    fn found(&self, title: &str, url: &str, profile: usize, bookmark: bool) -> Item {
         let profile = &self.profiles[profile];
         let address = url
             .trim_start_matches("https://")
@@ -326,22 +329,19 @@ impl Browsers {
             Some(open) => Action::Run(open.iter().cloned().chain([url.to_owned()]).collect()),
             None => Action::Open(url.to_owned()),
         };
-        Found {
-            item: Item {
-                title: if title.trim().is_empty() {
-                    address.to_owned()
-                } else {
-                    title.to_owned()
-                },
-                subtitle: Some(subtitle),
-                action,
-                alt: Some(Action::Copy(url.to_owned())),
-                icon: None,
-                image: None,
-                label: None,
-                alt_label: None,
+        Item {
+            title: if title.trim().is_empty() {
+                address.to_owned()
+            } else {
+                title.to_owned()
             },
-            bookmark,
+            subtitle: Some(subtitle),
+            icon: Some(if bookmark { "bookmark" } else { "history" }.into()),
+            image: None,
+            action,
+            alt: Some(Action::Copy(url.to_owned())),
+            label: None,
+            alt_label: Some("Copy address".into()),
         }
     }
 
@@ -620,8 +620,8 @@ mod tests {
         }
     }
 
-    fn titles(found: &[Found]) -> Vec<&str> {
-        found.iter().map(|f| f.item.title.as_str()).collect()
+    fn titles(found: &[Item]) -> Vec<&str> {
+        found.iter().map(|f| f.title.as_str()).collect()
     }
 
     #[test]
@@ -656,10 +656,11 @@ mod tests {
             ],
             "bookmarks first, a bookmarked page isn't repeated, browser pages are left out"
         );
-        assert!(found[0].bookmark && !found[2].bookmark);
-        assert_eq!(found[0].item.subtitle.as_deref(), Some("doc.rust-lang.org"));
+        assert_eq!(found[0].icon.as_deref(), Some("bookmark"));
+        assert_eq!(found[2].icon.as_deref(), Some("history"));
+        assert_eq!(found[0].subtitle.as_deref(), Some("doc.rust-lang.org"));
         assert_eq!(
-            found[0].item.action,
+            found[0].action,
             Action::Run(vec![
                 "google-chrome".into(),
                 "--profile-directory=x".into(),
@@ -667,7 +668,7 @@ mod tests {
             ])
         );
         assert_eq!(
-            found[0].item.alt,
+            found[0].alt,
             Some(Action::Copy("https://doc.rust-lang.org/".into()))
         );
 
@@ -696,7 +697,7 @@ mod tests {
         assert_eq!(titles(&no_history.search("crates")), Vec::<&str>::new());
         let found = no_history.search("rust");
         assert_eq!(
-            found[0].item.action,
+            found[0].action,
             Action::Open("https://doc.rust-lang.org/".into()),
             "without the browser's program, the default browser opens it"
         );
@@ -716,7 +717,7 @@ mod tests {
         let browsers = Browsers::from_profiles(vec![work, home], true, false, 10);
         let found = browsers.search("playground");
         assert_eq!(
-            found[0].item.subtitle.as_deref(),
+            found[0].subtitle.as_deref(),
             Some("play.rust-lang.org · Home")
         );
     }
