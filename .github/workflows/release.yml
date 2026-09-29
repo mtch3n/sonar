@@ -112,6 +112,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Stamp the nightly version
+        id: stamp
         if: needs.draft.outputs.nightly == 'true'
         shell: bash
         env:
@@ -121,6 +122,13 @@ jobs:
           perl -0pi -e 's/^version = "[^"]*"/version = "$ENV{VERSION}"/m' Cargo.toml
           perl -0pi -e 's/"version": "[^"]*"/"version": "$ENV{VERSION}"/' app/package.json
           cargo update --workspace
+          # An MSI's version is four numbers of at most 65535, so a pre-release
+          # like -nightly.20260928 can't be one: the installer is numbered by the
+          # day instead, which only ever goes up.
+          release="${VERSION%%-*}"
+          day=$(( $(date -u +%s) / 86400 ))
+          printf '{"bundle":{"windows":{"wix":{"version":"%s.%s"}}}}' "$release" "$day" > app/src-tauri/nightly.conf.json
+          echo "args=--config src-tauri/nightly.conf.json" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
@@ -164,7 +172,7 @@ jobs:
           projectPath: app
           tauriScript: pnpm tauri
           releaseId: ${{ needs.draft.outputs.id }}
-          args: ${{ matrix.args }}
+          args: ${{ matrix.args }} ${{ steps.stamp.outputs.args }}
       - name: Keep a trial build's installers
         if: needs.draft.outputs.trial == 'true'
         uses: actions/upload-artifact@v7
