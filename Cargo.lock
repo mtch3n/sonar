@@ -5536,7 +5536,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-app"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "gdkx11",
@@ -5567,7 +5567,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-apps"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "shell-words",
  "tempfile",
@@ -5575,7 +5575,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-cli"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "clap",
@@ -5587,7 +5587,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-core"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "blake3",
@@ -5605,7 +5605,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-models"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "hf-hub",
@@ -5621,7 +5621,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-plugins"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -5654,7 +5654,7 @@ dependencies = [
 
 [[package]]
 name = "sonar-settings"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "serde",
  "serde_json",

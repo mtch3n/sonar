@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.4.3] - 2026-09-29
+
+Search:
+- Search by meaning, off until you turn it on in Settings: `tenancy agreement for the apartment` finds a lease that never says those words. The model runs on your computer and is downloaded once: multilingual, which reads Chinese, or English. Results found by words and by meaning are ranked together, and every filter applies to both. A model behind an OpenAI-compatible API works too, as `provider:model`, like `ollama:bge-m3`
+- Providers: openai, openrouter, ollama and lmstudio are known, and others can be added under Providers in Settings. API keys are kept in the system keychain, and folders listed as private are never sent to a model that isn't on your computer
+- Everyday phrases work as filters: `pdfs from last week`, `photos in 2024`, `videos bigger than 1 gb`
+- Tags: `tag:receipt` finds files tagged by rules (screenshots, a project's language), by Linux file tags, by Describe, by labels found by meaning or learned from files you tagged, and by hand. Tags you give follow a file's content wherever it goes. Labels are set under Labels in Settings
+- Duplicates: `dupes:` groups copies, pictures and videos that look alike, and names like `report (1).pdf`, most space wasted first; `similar:` lists a file's look-alikes, and `sonar dupes` prints the groups
+- Ctrl + K lists what a result can do: Tags…, Find similar and Read again
+
+Indexing:
+- Choose how much of each kind of file is indexed, under What's indexed in Settings: nothing, its name, its words, or its meaning too, and how much of each file's text is kept
+- What's read from a file is remembered by its content, so moved, copied and touched files aren't read again, and a rebuilt index reads nothing it read before. Writes are noticed by the nanosecond and by the time programs can't set
+- Older Excel files, `.xls` and `.xlsb`, are read too
+- The index is rebuilt once
+
+Plugins:
+- Plugins can look at files as they're indexed, with a `[process]` table in `plugin.toml`
+- Describe writes tags and a line about each picture and video, with a vision model you choose, to search them by
+- Fingerprint makes perceptual hashes of pictures and videos, the way Stash does, to find look-alikes
+- Top (`top`) shows what the computer is busy with: running programs as a tree, with their CPU and memory
+
+Everything else:
+- Choose the screen the search bar opens on: the one with the pointer, or the main one
+- The search bar gets the keyboard when a shortcut opens it on GNOME
+- Keys typed right after the search box is filled no longer land before the filled text
+- Copying twice in a row no longer keeps a row of garbage in the clipboard history
+- `sonar reindex`, `sonar tag` and `sonar dupes` are new on the command line
+- Nightly builds include the Windows installer again
+
 ## [0.4.2] - 2026-09-28
 
 - Clipboard history no longer needs Sonar's GNOME extension: Sonar watches the clipboard through XWayland, so it works on any Linux desktop from the first copy. The extension is back to listing windows only
