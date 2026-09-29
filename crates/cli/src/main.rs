@@ -7,7 +7,6 @@ use std::{
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
 use sonar_core::{Hit, Index, Likeness, Paths, ProcessOptions, Processor, Query, Rules, Wanted};
-use sonar_models::Load;
 use sonar_settings::Settings;
 
 #[derive(Parser)]
@@ -198,12 +197,8 @@ fn run_index(index: &mut Index, paths: &Paths) -> Result<()> {
         embed(index, paths, &settings)?;
     }
     if settings.meaning.enabled && settings.meaning_ready(&paths.models) {
-        let load = Load {
-            download: false,
-            threads: 2,
-        };
         let mut embedder = settings
-            .meaning_model(&paths.models, load)
+            .meaning_model(&paths.models, false)
             .map_err(anyhow::Error::msg)?;
         let stats = index.learn_labels(embedder.as_mut(), &settings.labels())?;
         println!(
@@ -268,12 +263,8 @@ fn embed(index: &mut Index, paths: &Paths, settings: &Settings) -> Result<()> {
             info.name, info.download_mb
         );
     }
-    let load = Load {
-        download: true,
-        threads: std::thread::available_parallelism().map_or(4, |n| n.get()),
-    };
     let mut embedder = settings
-        .meaning_model(&paths.models, load)
+        .meaning_model(&paths.models, true)
         .map_err(anyhow::Error::msg)?;
     let (names, files) = index.pending_meaning(embedder.id())?;
     let started = Instant::now();
@@ -350,14 +341,10 @@ fn run_search(index: &mut Index, paths: &Paths, input: &str) -> Result<()> {
     }
     let query = Query::parse(input, &paths.home)?;
     let settings = Settings::load(&paths.settings).unwrap_or_default();
-    let load = Load {
-        download: false,
-        threads: 2,
-    };
     let embedder = settings
         .meaning
         .enabled
-        .then(|| settings.meaning_model(&paths.models, load).ok())
+        .then(|| settings.meaning_model(&paths.models, false).ok())
         .flatten();
     let hits = match embedder {
         Some(mut embedder) => index.search_with(&query, embedder.as_mut())?,

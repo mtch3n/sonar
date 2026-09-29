@@ -68,12 +68,8 @@ The model runs on your computer and is downloaded from Hugging Face the first ti
 |---|---|---|---|
 | `multilingual` (default) | over 100, including Chinese | 530 MB | thousands of passages a second |
 | `english` | English | 131 MB | thousands of passages a second |
-| `bge-small-en` | English | 67 MB | about 30 passages a second, better with whole sentences |
-| `multilingual-e5-small` | about 100 | 470 MB | about 30 passages a second, better with whole sentences |
 
-`meaning.model` can also name a model behind an OpenAI-compatible API as `provider:model`, like `openai:text-embedding-3-small`, `ollama:nomic-embed-text` or `lmstudio:text-embedding-bge-m3`; see [Providers](#providers).
-
-The first two are [Model2Vec](https://github.com/MinishLab/model2vec) static models, which read about 14,000 passages from a typical home folder in five seconds; the others are transformers run with ONNX Runtime, which take a few minutes for the same and understand sentences better. Changing the model learns everything again with the new one.
+Both are [Model2Vec](https://github.com/MinishLab/model2vec) static models, which Sonar runs itself and which read about 14,000 passages from a typical home folder in five seconds. They match topics well and whole sentences less so. For a transformer model, which understands sentences better, name one behind an OpenAI-compatible API as `provider:model`: `ollama:nomic-embed-text` or `ollama:bge-m3` with [Ollama](https://ollama.com) keeps everything on your computer, and `openai:text-embedding-3-small` sends text to OpenAI; see [Providers](#providers). Changing the model learns everything again with the new one.
 
 ### Pictures and videos
 
@@ -101,7 +97,7 @@ Files get tags from several places, and `tag:receipt` finds them all, as does `l
 - Rules: screenshots, by their name or folder, and projects by their language, like `rust` for a folder with `Cargo.toml`.
 - Tags a file carries itself: on Linux, the ones KDE's Dolphin and other file managers keep in `user.xdg.tags`.
 - Describe's tags for pictures and videos, and the labels it picks.
-- Labels, when searching by meaning is on: each file whose text is close to a label's meaning gets it, and so does each file that's like the ones you tagged with it by hand, once you've tagged two. Sonar's labels are receipt, invoice, bank-statement, contract, payslip, tax, id-document, ticket, medical, manual and screenshot; change them under Labels in Settings, or as `[labels]` with a line for each saying what it means. Labels found by meaning are a first guess, better with the precise models; the ones learned from your own tags get better the more you tag.
+- Labels, when searching by meaning is on: each file whose text is close to a label's meaning gets it, and so does each file that's like the ones you tagged with it by hand, once you've tagged two. Sonar's labels are receipt, invoice, bank-statement, contract, payslip, tax, id-document, ticket, medical, manual and screenshot; change them under Labels in Settings, or as `[labels]` with a line for each saying what it means. Labels found by meaning are a first guess, better with a transformer model through a provider; the ones learned from your own tags get better the more you tag.
 - Your own: Tags… in a file's actions (Ctrl + K) lists its tags, Enter on one takes it off, and typing a new one and Enter adds it. `sonar tag <file> +receipt -draft` does the same on the command line. Your tags stay with the file's content, so they follow it when it's moved, renamed or copied, and outlast rebuilding the index; a tag you take off stays off, whatever else would put it back.
 
 ### Providers
@@ -190,7 +186,7 @@ Sonar reads it again each time the search bar opens. If the file has a mistake, 
 | `index.text_kb` | `64` | how much of each file's text is searched, 1 to 16384; changing it reads every file again |
 | `index.kinds` | | how much of each kind of file is indexed; see [What gets indexed](#what-gets-indexed) |
 | `meaning.enabled` | `false` | search by meaning too; see [Search by meaning](#search-by-meaning) |
-| `meaning.model` | `multilingual` | the model that does it: `multilingual`, `english`, `bge-small-en`, `multilingual-e5-small`, or a provider's as `provider:model` |
+| `meaning.model` | `multilingual` | the model that does it: `multilingual`, `english`, or a provider's as `provider:model`, like `ollama:bge-m3` |
 | `labels.<name>` | Sonar's own | a label files can get, and a line saying what it means; with a `[labels]` table, only its labels are used |
 | `providers.<name>.url` | | an OpenAI-compatible API, like `https://llm.example.com/v1`; `openai`, `openrouter`, `ollama` and `lmstudio` are known |
 | `providers.<name>.key_env` | | a variable holding its API key, read before the keychain |

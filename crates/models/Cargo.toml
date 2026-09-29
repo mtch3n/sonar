@@ -12,7 +12,6 @@ homepage.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-fastembed.workspace = true
 hf-hub.workspace = true
 keyring.workspace = true
 memmap2.workspace = true

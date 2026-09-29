@@ -11,12 +11,8 @@ fn main() -> anyhow::Result<()> {
         anyhow::bail!("usage: try <index.db> <model> <query>...");
     };
     let dir = Path::new(db).with_file_name("models");
-    let load = sonar_models::Load {
-        download: true,
-        threads: sonar_models::threads_for_background(),
-    };
     let started = Instant::now();
-    let mut embedder = sonar_models::load(model, &dir, load)?;
+    let mut embedder = sonar_models::load(model, &dir, true)?;
     println!("loaded {model} in {:.1?}", started.elapsed());
     let mut index = Index::open(Path::new(db))?;
     let started = Instant::now();
