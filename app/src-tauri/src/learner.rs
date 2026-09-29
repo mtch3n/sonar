@@ -11,7 +11,6 @@ use std::{
 };
 
 use sonar_core::{Embedder, Index, Paths, ProcessOptions};
-use sonar_models::Load;
 use sonar_plugins::processor::ProcessorPlugin;
 use sonar_settings::Settings;
 
@@ -172,20 +171,8 @@ fn load(
             mb: info.download_mb,
         });
     }
-    let background = settings.meaning_model(
-        &paths.models,
-        Load {
-            download: true,
-            threads: sonar_models::threads_for_background(),
-        },
-    )?;
-    let for_queries = settings.meaning_model(
-        &paths.models,
-        Load {
-            download: false,
-            threads: 2,
-        },
-    )?;
+    let background = settings.meaning_model(&paths.models, true)?;
+    let for_queries = settings.meaning_model(&paths.models, false)?;
     Ok((background, for_queries))
 }
 

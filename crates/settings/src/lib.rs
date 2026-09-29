@@ -494,12 +494,12 @@ impl Settings {
         self.meaning.model.contains(':') || sonar_models::is_downloaded(&self.meaning.model, models)
     }
 
-    /// The model that searches by meaning, downloaded into `models` if `load` lets
-    /// it and it's one Sonar runs itself.
+    /// The model that searches by meaning, downloaded into `models` if `download`
+    /// lets it and it's one Sonar runs itself.
     pub fn meaning_model(
         &self,
         models: &Path,
-        load: sonar_models::Load,
+        download: bool,
     ) -> Result<Box<dyn sonar_core::Embedder>, String> {
         match self.meaning.model.split_once(':') {
             Some((provider, model)) => {
@@ -508,7 +508,7 @@ impl Settings {
                     .ok_or_else(|| format!("there's no provider `{provider}`"))?;
                 Ok(sonar_models::remote(provider, model))
             }
-            None => sonar_models::load(&self.meaning.model, models, load)
+            None => sonar_models::load(&self.meaning.model, models, download)
                 .map_err(|err| format!("{err:#}")),
         }
     }
@@ -959,8 +959,7 @@ text_kb = 64        # how much of each file's text is searched, 1 to 16384
 
 [meaning]
 enabled = false     # search by meaning too; downloads the model the first time
-model = "multilingual"  # "multilingual", "english", "bge-small-en", "multilingual-e5-small",
-                        # or a provider's, like "openai:text-embedding-3-small" or "ollama:nomic-embed-text"
+model = "multilingual"  # "multilingual", "english", or a provider's, like "ollama:bge-m3"
 
 [updates]
 check = true        # look for new versions of Sonar on GitHub

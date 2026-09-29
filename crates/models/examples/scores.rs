@@ -27,14 +27,7 @@ fn main() -> anyhow::Result<()> {
         ("授權條款", "Lunch with Sam on Friday at noon."),
     ];
     for model in &args[1..] {
-        let mut m = sonar_models::load(
-            model,
-            dir,
-            sonar_models::Load {
-                download: true,
-                threads: 4,
-            },
-        )?;
+        let mut m = sonar_models::load(model, dir, true)?;
         println!("== {model}");
         for (q, p) in pairs {
             let a = m.query(q)?;
