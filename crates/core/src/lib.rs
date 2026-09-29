@@ -138,7 +138,7 @@ impl Index {
     /// it, so the next scan reads and embeds it afresh. Returns how many files that
     /// covers.
     pub fn forget(&mut self, path: &Path) -> Result<u64> {
-        scan::forget(&mut self.conn, path)
+        scan::forget(&mut self.conn, &normal(path))
     }
 
     /// Has `processor` look at the files of its kinds it hasn't seen, and indexes
@@ -166,12 +166,14 @@ impl Index {
     /// whichever source it came from. It sticks to the file's content, so it follows
     /// the file when it's moved or copied.
     pub fn tag(&mut self, path: &Path, tag: &str, on: bool) -> Result<()> {
+        let path = normal(path);
         let path = path.to_str().context("the path isn't UTF-8")?;
         tags::set(&self.conn, path, tag, on)
     }
 
     /// The tags of the file at `path`, from every source.
     pub fn tags(&self, path: &Path) -> Result<Vec<String>> {
+        let path = normal(path);
         let path = path.to_str().context("the path isn't UTF-8")?;
         let id: i64 = self
             .conn
@@ -206,4 +208,10 @@ impl Index {
             .query_row("SELECT EXISTS (SELECT 1 FROM files)", [], |r| r.get(0))?;
         Ok(!any)
     }
+}
+
+/// `path` as the index writes paths: with the system's separator throughout, so
+/// `C:\Users\me/Documents` on Windows is found as `C:\Users\me\Documents`.
+fn normal(path: &Path) -> PathBuf {
+    path.components().collect()
 }
