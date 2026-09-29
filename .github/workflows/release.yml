@@ -178,9 +178,15 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: sonar-app-${{ runner.os }}
+          # The installers and their signatures, not the folders they're built in.
           path: |
-            target/release/bundle/*/*
-            target/universal-apple-darwin/release/bundle/*/*
+            target/release/bundle/*/*.AppImage*
+            target/release/bundle/*/*.deb*
+            target/release/bundle/*/*.rpm*
+            target/release/bundle/*/*.msi*
+            target/release/bundle/*/*.exe*
+            target/universal-apple-darwin/release/bundle/*/*.dmg
+            target/universal-apple-darwin/release/bundle/*/*.app.tar.gz*
           if-no-files-found: error
 
   cli:
